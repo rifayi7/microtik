@@ -1,0 +1,135 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Loader2, Wifi } from "lucide-react";
+import { toast } from "sonner";
+import { APP_DESCRIPTION, APP_NAME } from "@/lib/constants";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
+    await new Promise((r) => setTimeout(r, 1000));
+
+    if (email === "admin@hotspot.pro" && password === "admin") {
+      toast.success("Welcome back!");
+      router.push("/");
+    } else if (email && password) {
+      toast.success("Welcome back!");
+      router.push("/");
+    } else {
+      setError("Invalid email or password");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen grid lg:grid-cols-2">
+      <div className="hidden lg:flex flex-col justify-between bg-primary p-12 text-primary-foreground">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-primary-foreground/10">
+            <Wifi className="size-5" />
+          </div>
+          <span className="text-xl font-semibold">{APP_NAME}</span>
+        </div>
+        <div className="space-y-4">
+          <h1 className="text-3xl font-bold leading-tight">
+            Manage your MikroTik hotspot network from one dashboard
+          </h1>
+          <p className="text-primary-foreground/80 max-w-md">{APP_DESCRIPTION}</p>
+        </div>
+        <p className="text-sm text-primary-foreground/60">
+          Router management · Vouchers · Live sessions · Reports
+        </p>
+      </div>
+
+      <div className="flex items-center justify-center p-6 sm:p-12">
+        <Card className="w-full max-w-md border-0 shadow-none sm:border sm:shadow-sm">
+          <CardHeader className="space-y-1">
+            <div className="flex items-center gap-2 lg:hidden mb-4">
+              <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <Wifi className="size-4" />
+              </div>
+              <span className="font-semibold">{APP_NAME}</span>
+            </div>
+            <CardTitle className="text-2xl">Sign in</CardTitle>
+            <CardDescription>
+              Enter your credentials to access the admin panel
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {error && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                  {error}
+                </div>
+              )}
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="admin@hotspot.pro"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Link
+                    href="#"
+                    className="text-xs text-muted-foreground hover:text-primary"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="remember" />
+                <Label htmlFor="remember" className="text-sm font-normal">
+                  Remember me for 30 days
+                </Label>
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  "Sign in"
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
