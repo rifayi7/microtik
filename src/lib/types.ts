@@ -31,6 +31,54 @@ export interface HotspotUser {
   dataLimit: string;
   expiresAt: string;
   createdAt: string;
+  server?: string;
+  macAddress?: string;
+  bytesIn?: string;
+  bytesOut?: string;
+  comment?: string;
+}
+
+export interface HotspotHost {
+  id: string;
+  macAddress: string;
+  address: string;
+  server: string;
+  uptime: string;
+}
+
+export interface HotspotLogEntry {
+  id: string;
+  time: string;
+  user: string;
+  message: string;
+}
+
+export interface RouterResource {
+  cpuLoad: string;
+  cpuCount: string;
+  cpuFrequency: string;
+  memoryUsed: string;
+  memoryTotal: string;
+  memoryPercent: number;
+  hddUsed: string;
+  hddTotal: string;
+  hddPercent: number;
+  uptime: string;
+  version: string;
+  boardName: string;
+  identity: string;
+}
+
+export interface ConnectedDashboardData {
+  resource: RouterResource;
+  activeSessions: number;
+  totalUsers: number;
+  incomeToday: number;
+  incomeMonth: number;
+  currency: string;
+  appLogs: string[];
+  hotspotLogs: HotspotLogEntry[];
+  sessions: ActiveSession[];
 }
 
 export interface ActiveSession {

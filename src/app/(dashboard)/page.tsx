@@ -1,5 +1,5 @@
-import { DashboardClient } from "@/components/dashboard/dashboard-client";
+import { redirect } from "next/navigation";
 
-export default function DashboardPage() {
-  return <DashboardClient />;
+export default function HomePage() {
+  redirect("/settings/routers");
 }

@@ -15,20 +15,34 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const routerId = body.routerId as string | undefined;
+    const router = body.router || {};
+
+    const routerId = (body.routerId ?? router.id) as string | undefined;
 
     let config = routerId ? getRouterConfigById(routerId) : undefined;
 
-    if (!config && body.host && body.username) {
-      config = {
-        id: routerId ?? "custom",
-        sessionName: body.sessionName ?? body.host,
-        host: body.host,
-        port: Number(body.port ?? 8728),
-        username: body.username,
-        password: body.password ?? "",
-        useTls: Boolean(body.useTls),
-      };
+    if (!config) {
+      const host = body.host ?? router.host;
+      const username = body.username ?? router.username;
+
+      if (host && username) {
+        config = {
+          id: routerId ?? router.id ?? "custom",
+          sessionName: body.sessionName ?? router.sessionName ?? host,
+          host: host,
+          port: Number(body.port ?? router.port ?? 8728),
+          username: username,
+          password: body.password ?? router.password ?? "",
+          useTls: Boolean(body.useTls ?? router.useTls),
+          hotspotName: body.hotspotName ?? router.hotspotName,
+          dnsName: body.dnsName ?? router.dnsName,
+          currency: body.currency ?? router.currency,
+          camp: body.camp ?? router.camp,
+          sessionTimeout: body.sessionTimeout ?? router.sessionTimeout,
+          phone: body.phone ?? router.phone,
+          liveReport: body.liveReport !== undefined ? Boolean(body.liveReport) : (router.liveReport !== undefined ? Boolean(router.liveReport) : undefined),
+        };
+      }
     }
 
     if (!config) {

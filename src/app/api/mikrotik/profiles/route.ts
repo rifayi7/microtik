@@ -1,22 +1,25 @@
 import { NextResponse } from "next/server";
+import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
 import {
-  ensureMikrotikConfigured,
-  mikrotikErrorResponse,
-} from "@/lib/mikrotik/api-utils";
-import { isMikrotikConfigured } from "@/lib/mikrotik/config";
-import { fetchUserProfiles } from "@/lib/mikrotik/queries";
+  parseRouterFromBody,
+  resolveRouterFromRequestSync,
+} from "@/lib/mikrotik/resolve-router";
+import { fetchUserProfilesForRouter } from "@/lib/mikrotik/queries";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  if (!isMikrotikConfigured()) {
-    return ensureMikrotikConfigured();
-  }
-
+export async function POST(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const routerId = searchParams.get("routerId") ?? undefined;
-    const profiles = await fetchUserProfiles(routerId);
+    const body = await request.json();
+    const config =
+      parseRouterFromBody(body) ??
+      resolveRouterFromRequestSync(body, body.routerId as string | undefined);
+
+    if (!config) {
+      return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
+    }
+
+    const profiles = await fetchUserProfilesForRouter(config);
     return NextResponse.json({ profiles, configured: true });
   } catch (error) {
     return mikrotikErrorResponse(error, "Failed to load user profiles");

@@ -1,14 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-
-interface ApiState<T> {
-  data: T | null;
-  loading: boolean;
-  error: string | null;
-  configured: boolean;
-  reload: () => Promise<void>;
-}
+import { toMikrotikConfig, type StoredRouter } from "@/lib/router-store";
 
 interface ApiEnvelope {
   configured?: boolean;
@@ -37,10 +30,36 @@ export async function fetchMikrotikApi<T>(
   return payload;
 }
 
+export async function fetchForRouter<T>(
+  path: string,
+  router: StoredRouter,
+  init?: RequestInit
+): Promise<T & ApiEnvelope> {
+  const existingBody =
+    init?.body && typeof init.body === "string"
+      ? (JSON.parse(init.body) as Record<string, unknown>)
+      : {};
+
+  return fetchMikrotikApi<T>(path, {
+    ...init,
+    method: init?.method ?? "POST",
+    body: JSON.stringify({
+      router: toMikrotikConfig(router),
+      ...existingBody,
+    }),
+  });
+}
+
 export function useMikrotikApi<T>(
   path: string,
   pick: (payload: Record<string, unknown>) => T
-): ApiState<T> {
+): {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+  configured: boolean;
+  reload: () => Promise<void>;
+} {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

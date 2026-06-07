@@ -4,7 +4,7 @@ import {
   parseRouterFromBody,
   resolveRouterFromRequestSync,
 } from "@/lib/mikrotik/resolve-router";
-import { fetchHotspotUsersForRouter } from "@/lib/mikrotik/queries";
+import { fetchHotspotHostsForRouter } from "@/lib/mikrotik/queries";
 
 export const runtime = "nodejs";
 
@@ -19,9 +19,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
     }
 
-    const users = await fetchHotspotUsersForRouter(config);
-    return NextResponse.json({ users, configured: true });
+    const hosts = await fetchHotspotHostsForRouter(config);
+    return NextResponse.json({ hosts, configured: true });
   } catch (error) {
-    return mikrotikErrorResponse(error, "Failed to load hotspot users");
+    return mikrotikErrorResponse(error, "Failed to load hotspot hosts");
   }
 }

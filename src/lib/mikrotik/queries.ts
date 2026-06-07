@@ -1,6 +1,9 @@
 import type {
   ActiveSession,
+  ConnectedDashboardData,
   DashboardStats,
+  HotspotHost,
+  HotspotLogEntry,
   HotspotUser,
   UserProfile,
 } from "@/lib/types";
@@ -52,6 +55,11 @@ function mapHotspotUser(
     dataLimit: formatBytes(getRecordValue(record, "limit-bytes-total")) || "Unlimited",
     expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
     createdAt: new Date().toISOString(),
+    server: getRecordValue(record, "server") || "all",
+    macAddress: getRecordValue(record, "mac-address"),
+    bytesIn: formatBytes(getRecordValue(record, "bytes-in")),
+    bytesOut: formatBytes(getRecordValue(record, "bytes-out")),
+    comment: getRecordValue(record, "comment"),
   };
 }
 
@@ -164,17 +172,121 @@ export async function fetchAllRouters(options?: {
   return configs.map((config) => toRouterModel(config, { status: "unknown" }));
 }
 
+export async function fetchActiveSessionsForRouter(
+  config: MikrotikRouterConfig
+): Promise<ActiveSession[]> {
+  const records = await withMikrotikClient(toConnectionParams(config), (client) =>
+    mikrotikPrint(client, "/ip/hotspot/active/print")
+  );
+  return records.map((record) => mapActiveSession(record, config));
+}
+
+export async function fetchHotspotUsersForRouter(
+  config: MikrotikRouterConfig
+): Promise<HotspotUser[]> {
+  const records = await withMikrotikClient(toConnectionParams(config), (client) =>
+    mikrotikPrint(client, "/ip/hotspot/user/print")
+  );
+  return records.map((record) => mapHotspotUser(record, config));
+}
+
+export async function fetchUserProfilesForRouter(
+  config: MikrotikRouterConfig
+): Promise<UserProfile[]> {
+  const records = await withMikrotikClient(toConnectionParams(config), (client) =>
+    mikrotikPrint(client, "/ip/hotspot/user/profile/print")
+  );
+  return records.map(mapUserProfile);
+}
+
+export async function fetchHotspotHostsForRouter(
+  config: MikrotikRouterConfig
+): Promise<HotspotHost[]> {
+  const records = await withMikrotikClient(toConnectionParams(config), (client) =>
+    mikrotikPrint(client, "/ip/hotspot/host/print")
+  );
+
+  return records.map((record) => ({
+    id: getRecordValue(record, ".id"),
+    macAddress: getRecordValue(record, "mac-address"),
+    address: getRecordValue(record, "address"),
+    server: getRecordValue(record, "server") || "all",
+    uptime: formatUptime(getRecordValue(record, "uptime")),
+  }));
+}
+
+export async function fetchConnectedDashboard(
+  config: MikrotikRouterConfig
+): Promise<ConnectedDashboardData> {
+  const data = await withMikrotikClient(toConnectionParams(config), async (client) => {
+    const [identity, resource, sessions, users, logs] = await Promise.all([
+      mikrotikPrint(client, "/system/identity/print"),
+      mikrotikPrint(client, "/system/resource/print"),
+      mikrotikPrint(client, "/ip/hotspot/active/print"),
+      mikrotikPrint(client, "/ip/hotspot/user/print"),
+      mikrotikPrint(client, "/log/print", ["?topics~hotspot"]),
+    ]);
+
+    return { identity: identity[0], resource: resource[0], sessions, users, logs };
+  });
+
+  const resource = data.resource;
+  const totalMemory = Number(getRecordValue(resource, "total-memory") || 0);
+  const freeMemory = Number(getRecordValue(resource, "free-memory") || 0);
+  const totalHdd = Number(getRecordValue(resource, "total-hdd-space") || 0);
+  const freeHdd = Number(getRecordValue(resource, "free-hdd-space") || 0);
+
+  const hotspotLogs: HotspotLogEntry[] = data.logs.slice(-20).reverse().map((log, index) => {
+    const message = getRecordValue(log, "message");
+    const userMatch = message.match(/\(([^)]+)\)/);
+    return {
+      id: getRecordValue(log, ".id") || String(index),
+      time: getRecordValue(log, "time"),
+      user: userMatch?.[1] ?? "—",
+      message,
+    };
+  });
+
+  return {
+    resource: {
+      identity: getRecordValue(data.identity, "name"),
+      cpuLoad: getRecordValue(resource, "cpu-load"),
+      cpuCount: getRecordValue(resource, "cpu-count"),
+      cpuFrequency: getRecordValue(resource, "cpu-frequency"),
+      memoryUsed: formatBytes(totalMemory - freeMemory),
+      memoryTotal: formatBytes(totalMemory),
+      memoryPercent: totalMemory
+        ? Math.round(((totalMemory - freeMemory) / totalMemory) * 100)
+        : 0,
+      hddUsed: formatBytes(totalHdd - freeHdd),
+      hddTotal: formatBytes(totalHdd),
+      hddPercent: totalHdd ? Math.round(((totalHdd - freeHdd) / totalHdd) * 100) : 0,
+      uptime: getRecordValue(resource, "uptime"),
+      version: getRecordValue(resource, "version"),
+      boardName: getRecordValue(resource, "board-name"),
+    },
+    activeSessions: data.sessions.length,
+    totalUsers: data.users.length,
+    incomeToday: 0,
+    incomeMonth: 0,
+    currency: config.currency ?? "AED",
+    appLogs: [
+      `${new Date().toLocaleTimeString()} Loading Hotspot Info`,
+      `${new Date().toLocaleTimeString()} Connected to ${config.sessionName}`,
+      `${new Date().toLocaleTimeString()} Dashboard synced`,
+    ],
+    hotspotLogs,
+    sessions: data.sessions.map((record) => mapActiveSession(record, config)),
+  };
+}
+
 export async function fetchActiveSessions(): Promise<ActiveSession[]> {
   const configs = getConfiguredRouters();
   const sessions: ActiveSession[] = [];
 
   for (const config of configs) {
     try {
-      const records = await withMikrotikClient(
-        toConnectionParams(config),
-        (client) => mikrotikPrint(client, "/ip/hotspot/active/print")
-      );
-      sessions.push(...records.map((record) => mapActiveSession(record, config)));
+      sessions.push(...(await fetchActiveSessionsForRouter(config)));
     } catch {
       // Skip unreachable routers
     }
@@ -191,11 +303,7 @@ export async function fetchHotspotUsers(routerId?: string): Promise<HotspotUser[
 
   for (const config of configs) {
     try {
-      const records = await withMikrotikClient(
-        toConnectionParams(config),
-        (client) => mikrotikPrint(client, "/ip/hotspot/user/print")
-      );
-      users.push(...records.map((record) => mapHotspotUser(record, config)));
+      users.push(...(await fetchHotspotUsersForRouter(config)));
     } catch {
       // Skip unreachable routers
     }
@@ -212,11 +320,7 @@ export async function fetchUserProfiles(routerId?: string): Promise<UserProfile[
 
   for (const config of configs) {
     try {
-      const records = await withMikrotikClient(
-        toConnectionParams(config),
-        (client) => mikrotikPrint(client, "/ip/hotspot/user/profile/print")
-      );
-      profiles.push(...records.map(mapUserProfile));
+      profiles.push(...(await fetchUserProfilesForRouter(config)));
     } catch {
       // Skip unreachable routers
     }
@@ -255,14 +359,9 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
 }
 
 export async function disconnectHotspotSession(
-  routerId: string,
+  config: MikrotikRouterConfig,
   sessionId: string
 ): Promise<void> {
-  const config = getConfiguredRouters().find((router) => router.id === routerId);
-  if (!config) {
-    throw new Error("Router not found in environment configuration");
-  }
-
   await withMikrotikClient(toConnectionParams(config), async (client) => {
     await client.write("/ip/hotspot/active/remove", [`=.id=${sessionId}`]);
   });
