@@ -43,3 +43,7 @@ export async function POST(request: Request) {
     return mikrotikErrorResponse(error, "Failed to load dashboard");
   }
 }
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}

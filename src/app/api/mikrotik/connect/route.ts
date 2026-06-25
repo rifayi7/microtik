@@ -64,3 +64,7 @@ export async function POST(request: Request) {
     return mikrotikErrorResponse(error, "Connection test failed");
   }
 }
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}

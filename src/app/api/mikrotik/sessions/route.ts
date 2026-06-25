@@ -46,3 +46,7 @@ export async function DELETE(request: Request) {
     return mikrotikErrorResponse(error, "Failed to disconnect session");
   }
 }
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}

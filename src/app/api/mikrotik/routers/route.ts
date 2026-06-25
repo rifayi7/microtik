@@ -38,3 +38,7 @@ export async function GET() {
     return mikrotikErrorResponse(error, "Failed to load routers");
   }
 }
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}

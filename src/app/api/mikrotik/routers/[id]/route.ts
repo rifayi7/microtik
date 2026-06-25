@@ -85,3 +85,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return mikrotikErrorResponse(error, "Failed to update router");
   }
 }
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}

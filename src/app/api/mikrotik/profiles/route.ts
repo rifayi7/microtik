@@ -25,3 +25,7 @@ export async function POST(request: Request) {
     return mikrotikErrorResponse(error, "Failed to load user profiles");
   }
 }
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
+}

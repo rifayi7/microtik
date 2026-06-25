@@ -366,3 +366,37 @@ export async function disconnectHotspotSession(
     await client.write("/ip/hotspot/active/remove", [`=.id=${sessionId}`]);
   });
 }
+
+export async function updateOrCreateHotspotUser(
+  config: MikrotikRouterConfig,
+  username: string,
+  password: string,
+  profile: string,
+  comment: string
+): Promise<void> {
+  await withMikrotikClient(toConnectionParams(config), async (client) => {
+    // 1. Find user by name (voucher code)
+    const records = await client.write("/ip/hotspot/user/print", [
+      `?name=${username}`,
+    ]) as RouterOSRecord[];
+
+    if (records.length > 0) {
+      // User exists, update the comment
+      const id = records[0][".id"];
+      await client.write("/ip/hotspot/user/set", [
+        `=.id=${id}`,
+        `=comment=${comment}`,
+      ]);
+    } else {
+      // User does not exist, create a new one
+      await client.write("/ip/hotspot/user/add", [
+        `=name=${username}`,
+        `=password=${password}`,
+        `=profile=${profile}`,
+        `=comment=${comment}`,
+      ]);
+    }
+  });
+}
+
+
