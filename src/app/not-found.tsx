@@ -12,7 +12,7 @@ export default function NotFound() {
       <p className="max-w-md text-muted-foreground">
         The router or page you&apos;re looking for doesn&apos;t exist or has been removed.
       </p>
-      <Button render={<Link href="/" />}>
+      <Button render={<Link href="/" />} nativeButton={false}>
         <ArrowLeft className="size-4" />
         Back to Dashboard
       </Button>

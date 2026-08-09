@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
     }
 
-    const { validity_days, voucherId, voucherCode, mobileNumber: rawMobile } = body;
+    const { validity_days, voucherId, voucherCode, mobileNumber: rawMobile, salesperson } = body;
     mobileNumber = String(rawMobile || "").trim();
 
     if (!mobileNumber) {
@@ -53,10 +53,10 @@ export async function POST(request: Request) {
 
         const updateStmt = db.prepare(`
           UPDATE vouchers 
-          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used'
+          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', sold_by = ?
           WHERE voucher_code = ?
         `);
-        updateStmt.run(mobileNumber, selectedVoucherCode);
+        updateStmt.run(mobileNumber, salesperson || null, selectedVoucherCode);
 
         db.exec("COMMIT");
       } catch (txError) {
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       const username = selectedVoucherCode;
       const password = selectedVoucherCode;
       const profile = `${validityDaysNum}-Days`;
-      const comment = `Mobile: ${mobileNumber}`;
+      const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
 
       try {
         await updateOrCreateHotspotUser(config, username, password, profile, comment);
@@ -152,21 +152,21 @@ export async function POST(request: Request) {
         // Update database
         const updateStmt = db.prepare(`
           UPDATE vouchers 
-          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?
+          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
           WHERE voucher_code = ?
         `);
-        updateStmt.run(mobileNumber, config.id, selectedVoucherCode);
+        updateStmt.run(mobileNumber, config.id, salesperson || null, selectedVoucherCode);
       } else {
         // Insert as new used voucher since it existed on router but not in local DB
         const insertStmt = db.prepare(`
-          INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id)
-          VALUES (?, ?, 1, ?, datetime('now'), 'used', ?)
+          INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
+          VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
         `);
-        insertStmt.run(selectedVoucherCode, validityDaysNum, mobileNumber, config.id);
+        insertStmt.run(selectedVoucherCode, validityDaysNum, mobileNumber, config.id, salesperson || null);
       }
 
       // Update the user comment on MikroTik
-      const comment = `Mobile: ${mobileNumber}`;
+      const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
       try {
         await withMikrotikClient(toConnectionParams(config), async (client) => {
           await client.write("/ip/hotspot/user/set", [
@@ -263,21 +263,21 @@ export async function POST(request: Request) {
       if (!isNewVoucher) {
         const updateStmt = db.prepare(`
           UPDATE vouchers 
-          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?
+          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
           WHERE voucher_code = ?
         `);
-        updateStmt.run(mobileNumber, config.id, code);
+        updateStmt.run(mobileNumber, config.id, salesperson || null, code);
       } else {
         const insertStmt = db.prepare(`
-          INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id)
-          VALUES (?, ?, 1, ?, datetime('now'), 'used', ?)
+          INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
+          VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
         `);
-        insertStmt.run(code, validityDaysNum, mobileNumber, config.id);
+        insertStmt.run(code, validityDaysNum, mobileNumber, config.id, salesperson || null);
       }
 
       // Update/Create on RouterOS
       const profile = `${validityDaysNum}-Days`;
-      const comment = `Mobile: ${mobileNumber}`;
+      const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
       
       try {
         await updateOrCreateHotspotUser(config, code, code, profile, comment);

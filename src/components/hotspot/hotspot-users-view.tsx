@@ -70,13 +70,13 @@ export function HotspotUsersView() {
         <span className="rounded border bg-white px-3 py-1 text-sm font-semibold dark:bg-card">
           {filtered.length}
         </span>
-        <Button variant="outline" size="icon-sm" className="bg-white" onClick={() => void load()}>
+        <Button variant="outline" size="icon-sm" className="bg-white dark:bg-card" onClick={() => void load()}>
           <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
         <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="bg-white pl-8"
+            className="bg-white dark:bg-card pl-8"
             placeholder="Search..."
             value={search}
             onChange={(e) => {
@@ -85,16 +85,16 @@ export function HotspotUsersView() {
             }}
           />
         </div>
-        <Button variant="outline" size="icon-sm" className="bg-white">
+        <Button variant="outline" size="icon-sm" className="bg-white dark:bg-card">
           <Filter className="size-4" />
         </Button>
         <div className="ml-auto flex flex-wrap gap-2">
-          <Button variant="outline" className="bg-white">
+          <Button variant="outline" className="bg-white dark:bg-card">
             <Plus className="size-4" /> Add
           </Button>
-          <Button variant="outline" className="bg-white">Generate</Button>
-          <Button variant="outline" className="bg-white">Profile</Button>
-          <Button variant="outline" className="bg-white">Comment</Button>
+          <Button variant="outline" className="bg-white dark:bg-card">Generate</Button>
+          <Button variant="outline" className="bg-white dark:bg-card">Profile</Button>
+          <Button variant="outline" className="bg-white dark:bg-card">Comment</Button>
         </div>
       </div>
 

@@ -86,7 +86,7 @@ export function AppSidebar() {
               value={activeRouter?.id}
               onValueChange={(value) => value && void handleRouterChange(value)}
             >
-              <SelectTrigger className="mt-4 w-full bg-white">
+              <SelectTrigger className="mt-4 w-full bg-white dark:bg-card">
                 <SelectValue placeholder="Select router" />
               </SelectTrigger>
               <SelectContent>

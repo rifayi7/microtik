@@ -24,9 +24,17 @@ export function getDB(): DatabaseSync {
       used_at TEXT,
       reserved_at TEXT,
       status TEXT DEFAULT 'available',
-      router_id TEXT NOT NULL
+      router_id TEXT NOT NULL,
+      sold_by TEXT
     );
   `);
+
+  // Ensure sold_by column exists for existing databases
+  try {
+    dbInstance.exec("ALTER TABLE vouchers ADD COLUMN sold_by TEXT;");
+  } catch (e) {
+    // Column already exists
+  }
 
   // Check if seeding is required for default router ID '1'
   const checkStmt = dbInstance.prepare("SELECT COUNT(*) as count FROM vouchers WHERE router_id = '1'");

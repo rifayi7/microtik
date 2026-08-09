@@ -56,14 +56,14 @@ export function SetupRouterList() {
   return (
     <div className="toetik-panel space-y-4">
       <Tabs value="routers">
-        <TabsList className="h-auto flex-wrap gap-1 bg-white p-1">
-          <TabsTrigger value="settings" render={<Link href="/settings/routers" />}>
+        <TabsList className="h-auto flex-wrap gap-1 bg-white dark:bg-card p-1">
+          <TabsTrigger value="settings" render={<Link href="/settings/routers" />} nativeButton={false}>
             Settings
           </TabsTrigger>
           <TabsTrigger value="admin" disabled>
             Admin
           </TabsTrigger>
-          <TabsTrigger value="routers" className="bg-white shadow-sm">
+          <TabsTrigger value="routers" className="bg-white dark:bg-zinc-800 shadow-sm">
             Router List
           </TabsTrigger>
         </TabsList>
@@ -71,14 +71,14 @@ export function SetupRouterList() {
 
       <Button
         variant="outline"
-        className="bg-white"
+        className="bg-white dark:bg-card"
         onClick={() => setAddOpen(true)}
       >
         <Plus className="size-4" />
         Add Router
       </Button>
 
-      <div className="overflow-hidden rounded-lg border bg-white">
+      <div className="overflow-hidden rounded-lg border bg-white dark:bg-card">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/60 hover:bg-muted/60">
@@ -118,6 +118,7 @@ export function SetupRouterList() {
                         variant="ghost"
                         size="icon-xs"
                         render={<Link href={`/settings/routers/${router.id}`} />}
+                        nativeButton={false}
                       >
                         <Settings className="size-4" />
                       </Button>

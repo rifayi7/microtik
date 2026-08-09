@@ -144,7 +144,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
     return (
       <div className="space-y-4">
         <MikrotikSetupAlert error={error} configured={configured} />
-        <Button render={<Link href="/routers" />}>Back to routers</Button>
+        <Button render={<Link href="/routers" />} nativeButton={false}>Back to routers</Button>
       </div>
     );
   }
@@ -157,7 +157,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
       >
         <div className="flex flex-wrap gap-2">
           <StatusBadge status={data.status} />
-          <Button variant="outline" render={<Link href="/routers" />}>
+          <Button variant="outline" render={<Link href="/routers" />} nativeButton={false}>
             <X className="size-4" />
             Close
           </Button>

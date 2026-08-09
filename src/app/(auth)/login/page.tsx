@@ -31,9 +31,6 @@ export default function LoginPage() {
     if (email === "admin@hotspot.pro" && password === "admin") {
       toast.success("Welcome back!");
       router.push("/");
-    } else if (email && password) {
-      toast.success("Welcome back!");
-      router.push("/");
     } else {
       setError("Invalid email or password");
       setLoading(false);

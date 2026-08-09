@@ -35,6 +35,7 @@ export function SettingsClient() {
               key={tab.href}
               value={tab.href === "/settings" ? "general" : "other"}
               render={<Link href={tab.href} />}
+              nativeButton={false}
               className={cn(pathname === tab.href && "data-active:bg-background")}
             >
               <tab.icon className="size-3.5" />

@@ -83,7 +83,7 @@ export function DashboardClient() {
         <Button variant="outline" onClick={() => void loadDashboard()}>
           Refresh
         </Button>
-        <Button render={<Link href="/routers" />}>
+        <Button render={<Link href="/routers" />} nativeButton={false}>
           Manage Routers
           <ArrowUpRight className="size-4" />
         </Button>
@@ -124,7 +124,7 @@ export function DashboardClient() {
             <Card className="lg:col-span-2">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-base">Router Status</CardTitle>
-                <Button variant="ghost" size="sm" render={<Link href="/routers" />}>
+                <Button variant="ghost" size="sm" render={<Link href="/routers" />} nativeButton={false}>
                   View all
                 </Button>
               </CardHeader>
