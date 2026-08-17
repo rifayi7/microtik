@@ -256,39 +256,27 @@ export async function fetchConnectedDashboard(
     
     const todayResult = await db.execute({
       sql: `
-        SELECT validity_days, COUNT(*) as count 
+        SELECT SUM(price_charged) as total 
         FROM vouchers 
-        WHERE is_used = 1 
+        WHERE status = 'redeemed' 
           AND router_id = ? 
           AND date(used_at) = date('now')
-        GROUP BY validity_days
       `,
       args: [config.id]
     });
-    for (const row of todayResult.rows) {
-      const validityDays = Number(row.validity_days);
-      const count = Number(row.count);
-      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
-      incomeToday += price * count;
-    }
+    incomeToday = Number(todayResult.rows[0]?.total ?? 0);
 
     const monthResult = await db.execute({
       sql: `
-        SELECT validity_days, COUNT(*) as count 
+        SELECT SUM(price_charged) as total 
         FROM vouchers 
-        WHERE is_used = 1 
+        WHERE status = 'redeemed' 
           AND router_id = ? 
           AND strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')
-        GROUP BY validity_days
       `,
       args: [config.id]
     });
-    for (const row of monthResult.rows) {
-      const validityDays = Number(row.validity_days);
-      const count = Number(row.count);
-      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
-      incomeMonth += price * count;
-    }
+    incomeMonth = Number(monthResult.rows[0]?.total ?? 0);
   } catch (dbError) {
     console.error("Failed to fetch income from DB", dbError);
   }
@@ -397,32 +385,20 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
   try {
     const db = await getDB();
     const todayResult = await db.execute(`
-      SELECT validity_days, COUNT(*) as count 
+      SELECT SUM(price_charged) as total 
       FROM vouchers 
-      WHERE is_used = 1 
+      WHERE status = 'redeemed' 
         AND date(used_at) = date('now')
-      GROUP BY validity_days
     `);
-    for (const row of todayResult.rows) {
-      const validityDays = Number(row.validity_days);
-      const count = Number(row.count);
-      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
-      revenueToday += price * count;
-    }
+    revenueToday = Number(todayResult.rows[0]?.total ?? 0);
 
     const monthResult = await db.execute(`
-      SELECT validity_days, COUNT(*) as count 
+      SELECT SUM(price_charged) as total 
       FROM vouchers 
-      WHERE is_used = 1 
+      WHERE status = 'redeemed' 
         AND strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')
-      GROUP BY validity_days
     `);
-    for (const row of monthResult.rows) {
-      const validityDays = Number(row.validity_days);
-      const count = Number(row.count);
-      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
-      revenueMonth += price * count;
-    }
+    revenueMonth = Number(monthResult.rows[0]?.total ?? 0);
   } catch (dbError) {
     console.error("Failed to fetch dashboard stats revenue from DB", dbError);
   }

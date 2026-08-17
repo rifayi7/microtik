@@ -34,14 +34,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Invalid validity period" }, { status: 400 });
       }
 
-      // Step 1: Transaction to select and mark the voucher as used
+      // Step 1: Transaction to select and mark the voucher as reserved
       const tx = await db.transaction("write");
       try {
         const selectResult = await tx.execute({
           sql: `
             SELECT voucher_code 
             FROM vouchers 
-            WHERE validity_days = ? AND is_used = 0 AND router_id = ?
+            WHERE validity_days = ? AND status = 'available' AND router_id = ?
             LIMIT 1
           `,
           args: [validityDaysNum, config.id]
@@ -57,20 +57,29 @@ export async function POST(request: Request) {
         await tx.execute({
           sql: `
             UPDATE vouchers 
-            SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', sold_by = ?
+            SET status = 'reserved', reserved_until = datetime('now', '+10 minutes'), activation_status = 'pending'
             WHERE voucher_code = ?
           `,
-          args: [mobileNumber, salesperson || null, selectedVoucherCode]
+          args: [selectedVoucherCode]
         });
 
         await tx.commit();
       } catch (txError) {
         await tx.rollback();
         return NextResponse.json(
-          { error: txError instanceof Error ? txError.message : "Failed to allocate voucher" },
+          { error: txError instanceof Error ? txError.message : "Failed to reserve voucher" },
           { status: 400 }
         );
       }
+
+      // Fetch dynamic price from database or fallback to defaults
+      const priceResult = await db.execute({
+        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
+        args: [validityDaysNum]
+      });
+      const priceCharged = priceResult.rows[0] 
+        ? Number(priceResult.rows[0].price) 
+        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
 
       // Step 2: Connect to MikroTik and create the hotspot user
       const username = selectedVoucherCode;
@@ -80,23 +89,34 @@ export async function POST(request: Request) {
 
       try {
         await updateOrCreateHotspotUser(config, username, password, profile, comment);
+
+        // Update to redeemed on success
+        await db.execute({
+          sql: `
+            UPDATE vouchers 
+            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'success', activation_error = NULL
+            WHERE voucher_code = ?
+          `,
+          args: [mobileNumber, salesperson || null, priceCharged, selectedVoucherCode]
+        });
       } catch (mikrotikError) {
+        const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
         // Revert the voucher status in database if MikroTik creation fails
         try {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
+              SET status = 'available', reserved_until = NULL, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [selectedVoucherCode]
+            args: [errMsg, selectedVoucherCode]
           });
         } catch (revertError) {
           console.error("Critical: Failed to revert voucher allocation", revertError);
         }
 
         return NextResponse.json(
-          { error: `Router connection failed: ${mikrotikError instanceof Error ? mikrotikError.message : "Unknown error"}` },
+          { error: `Router connection failed: ${errMsg}` },
           { status: 502 }
         );
       }
@@ -144,15 +164,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `Could not parse validity days from profile: ${profileName}` }, { status: 400 });
       }
 
-      // Mark as used in database
+      // Fetch dynamic price from database or fallback to defaults
+      const priceResult = await db.execute({
+        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
+        args: [validityDaysNum]
+      });
+      const priceCharged = priceResult.rows[0] 
+        ? Number(priceResult.rows[0].price) 
+        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+
+      // Check status in database
       const checkResult = await db.execute({
-        sql: "SELECT is_used FROM vouchers WHERE voucher_code = ?",
+        sql: "SELECT status FROM vouchers WHERE voucher_code = ?",
         args: [selectedVoucherCode],
       });
       const row = checkResult.rows[0];
       
       if (row) {
-        if (Number(row.is_used) === 1) {
+        if (row.status === 'redeemed') {
           return NextResponse.json({ error: "Voucher already redeemed" }, { status: 400 });
         }
         
@@ -160,19 +189,19 @@ export async function POST(request: Request) {
         await db.execute({
           sql: `
             UPDATE vouchers 
-            SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
+            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
             WHERE voucher_code = ?
           `,
-          args: [mobileNumber, config.id, salesperson || null, selectedVoucherCode],
+          args: [mobileNumber, salesperson || null, priceCharged, config.id, selectedVoucherCode],
         });
       } else {
         // Insert as new used voucher since it existed on router but not in local DB
         await db.execute({
           sql: `
-            INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
-            VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
+            INSERT INTO vouchers (voucher_code, validity_days, status, used_by, used_at, router_id, sold_by, price_charged, activation_status)
+            VALUES (?, ?, 'redeemed', ?, datetime('now'), ?, ?, ?, 'success')
           `,
-          args: [selectedVoucherCode, validityDaysNum, mobileNumber, config.id, salesperson || null],
+          args: [selectedVoucherCode, validityDaysNum, mobileNumber, config.id, salesperson || null, priceCharged],
         });
       }
 
@@ -186,22 +215,23 @@ export async function POST(request: Request) {
           ]);
         });
       } catch (mikrotikError) {
+        const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router comment update failed";
         // Revert database status if MikroTik update fails
         try {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
+              SET status = 'available', reserved_until = NULL, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [selectedVoucherCode]
+            args: [errMsg, selectedVoucherCode]
           });
         } catch (revertError) {
           console.error("Critical: Failed to revert voucher allocation", revertError);
         }
 
         return NextResponse.json(
-          { error: `Router connection failed: ${mikrotikError instanceof Error ? mikrotikError.message : "Unknown error"}` },
+          { error: `Router connection failed: ${errMsg}` },
           { status: 502 }
         );
       }
@@ -214,7 +244,7 @@ export async function POST(request: Request) {
 
       // Check if it exists in local database
       const checkResult = await db.execute({
-        sql: "SELECT is_used, validity_days FROM vouchers WHERE voucher_code = ?",
+        sql: "SELECT status, validity_days FROM vouchers WHERE voucher_code = ?",
         args: [code],
       });
       const row = checkResult.rows[0];
@@ -222,7 +252,7 @@ export async function POST(request: Request) {
       let isNewVoucher = false;
 
       if (row) {
-        if (Number(row.is_used) === 1) {
+        if (row.status === 'redeemed') {
           return NextResponse.json({ error: "Voucher already redeemed" }, { status: 400 });
         }
         validityDaysNum = Number(row.validity_days);
@@ -272,23 +302,32 @@ export async function POST(request: Request) {
 
       selectedVoucherCode = code;
 
+      // Fetch dynamic price from database or fallback to defaults
+      const priceResult = await db.execute({
+        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
+        args: [validityDaysNum]
+      });
+      const priceCharged = priceResult.rows[0] 
+        ? Number(priceResult.rows[0].price) 
+        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+
       // Mark as used in database
       if (!isNewVoucher) {
         await db.execute({
           sql: `
             UPDATE vouchers 
-            SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
+            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
             WHERE voucher_code = ?
           `,
-          args: [mobileNumber, config.id, salesperson || null, code],
+          args: [mobileNumber, salesperson || null, priceCharged, config.id, code],
         });
       } else {
         await db.execute({
           sql: `
-            INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
-            VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
+            INSERT INTO vouchers (voucher_code, validity_days, status, used_by, used_at, router_id, sold_by, price_charged, activation_status)
+            VALUES (?, ?, 'redeemed', ?, datetime('now'), ?, ?, ?, 'success')
           `,
-          args: [code, validityDaysNum, mobileNumber, config.id, salesperson || null],
+          args: [code, validityDaysNum, mobileNumber, config.id, salesperson || null, priceCharged],
         });
       }
 
@@ -299,22 +338,23 @@ export async function POST(request: Request) {
       try {
         await updateOrCreateHotspotUser(config, code, code, profile, comment);
       } catch (mikrotikError) {
+        const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
         // Revert database status on failure
         try {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
+              SET status = 'available', reserved_until = NULL, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [code]
+            args: [errMsg, code]
           });
         } catch (revertError) {
           console.error("Critical: Failed to revert voucher allocation", revertError);
         }
 
         return NextResponse.json(
-          { error: `Router connection failed: ${mikrotikError instanceof Error ? mikrotikError.message : "Unknown error"}` },
+          { error: `Router connection failed: ${errMsg}` },
           { status: 502 }
         );
       }

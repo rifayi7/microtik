@@ -8,7 +8,7 @@ export async function GET() {
     const db = await getDB();
 
     // 1. Get total sold vouchers count
-    const totalSoldResult = await db.execute("SELECT COUNT(*) as count FROM vouchers WHERE is_used = 1");
+    const totalSoldResult = await db.execute("SELECT COUNT(*) as count FROM vouchers WHERE status = 'redeemed'");
     const totalSoldRow = totalSoldResult.rows[0];
     const totalSold = totalSoldRow ? Number(totalSoldRow.count) : 0;
 
@@ -16,7 +16,7 @@ export async function GET() {
     const salespersonResult = await db.execute(`
       SELECT sold_by as name, COUNT(*) as count 
       FROM vouchers 
-      WHERE is_used = 1 AND sold_by IS NOT NULL 
+      WHERE status = 'redeemed' AND sold_by IS NOT NULL 
       GROUP BY sold_by
       ORDER BY count DESC
     `);
@@ -29,7 +29,7 @@ export async function GET() {
     const salesLogResult = await db.execute(`
       SELECT voucher_code as code, validity_days as validity, used_by as mobile, used_at as timestamp, sold_by as seller, router_id as routerId
       FROM vouchers
-      WHERE is_used = 1
+      WHERE status = 'redeemed'
       ORDER BY used_at DESC
     `);
     const salesLogs = salesLogResult.rows.map(row => ({

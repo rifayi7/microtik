@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       sql: `
         SELECT validity_days AS days, COUNT(*) AS available_count
         FROM vouchers
-        WHERE is_used = 0 AND router_id = ?
+        WHERE status = 'available' AND router_id = ?
         GROUP BY validity_days
         ORDER BY validity_days ASC
       `,

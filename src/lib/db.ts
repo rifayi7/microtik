@@ -21,13 +21,16 @@ export async function initializeDB() {
     CREATE TABLE IF NOT EXISTS vouchers (
       voucher_code TEXT PRIMARY KEY,
       validity_days INTEGER NOT NULL,
-      is_used INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'available',
+      reserved_until TEXT,
       used_by TEXT,
       used_at TEXT,
       reserved_at TEXT,
-      status TEXT DEFAULT 'available',
       router_id TEXT NOT NULL,
-      sold_by TEXT
+      sold_by TEXT,
+      price_charged REAL,
+      activation_status TEXT DEFAULT 'pending',
+      activation_error TEXT
     );
   `);
 
@@ -47,6 +50,18 @@ export async function initializeDB() {
   const count = Number(checkResult.rows[0]?.count ?? 0);
   if (count === 0) {
     await seedVouchersForRouter('1');
+  }
+
+  // Automatically clean up expired voucher reservations
+  try {
+    await db.execute(`
+      UPDATE vouchers 
+      SET status = 'available', reserved_until = NULL 
+      WHERE status = 'reserved' 
+        AND reserved_until < datetime('now');
+    `);
+  } catch (err) {
+    console.error("Failed to clean up expired reservations:", err);
   }
 
   isInitialized = true;
@@ -81,7 +96,7 @@ export async function seedVouchersForRouter(routerId: string) {
     for (let i = 0; i < plan.count; i++) {
       const code = generateRandomCode();
       statements.push({
-        sql: "INSERT OR IGNORE INTO vouchers (voucher_code, validity_days, is_used, status, router_id) VALUES (?, ?, 0, 'available', ?)",
+        sql: "INSERT OR IGNORE INTO vouchers (voucher_code, validity_days, status, router_id) VALUES (?, ?, 'available', ?)",
         args: [code, plan.days, routerId],
       });
     }
