@@ -34,9 +34,27 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Invalid validity period" }, { status: 400 });
       }
 
+      // Fetch dynamic price from database or fallback to defaults
+      const priceResult = await db.execute({
+        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
+        args: [validityDaysNum]
+      });
+      const priceCharged = priceResult.rows[0] 
+        ? Number(priceResult.rows[0].price) 
+        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+
       // Step 1: Transaction to select and mark the voucher as reserved
       const tx = await db.transaction("write");
       try {
+        // Run cleanup of expired reservations inside transaction to free up slot
+        await tx.execute(`
+          UPDATE vouchers 
+          SET status = 'available', reserved_until = NULL 
+          WHERE status = 'reserved' 
+            AND reserved_until < datetime('now')
+        `);
+
+        // Select the available voucher
         const selectResult = await tx.execute({
           sql: `
             SELECT voucher_code 
@@ -72,15 +90,6 @@ export async function POST(request: Request) {
         );
       }
 
-      // Fetch dynamic price from database or fallback to defaults
-      const priceResult = await db.execute({
-        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
-        args: [validityDaysNum]
-      });
-      const priceCharged = priceResult.rows[0] 
-        ? Number(priceResult.rows[0].price) 
-        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
-
       // Step 2: Connect to MikroTik and create the hotspot user
       const username = selectedVoucherCode;
       const password = selectedVoucherCode;
@@ -101,18 +110,18 @@ export async function POST(request: Request) {
         });
       } catch (mikrotikError) {
         const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
-        // Revert the voucher status in database if MikroTik creation fails
+        // Keep as redeemed but mark activation as failed. Payment was collected, so it cannot be put back in inventory.
         try {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'available', reserved_until = NULL, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [errMsg, selectedVoucherCode]
+            args: [mobileNumber, salesperson || null, priceCharged, errMsg, selectedVoucherCode]
           });
         } catch (revertError) {
-          console.error("Critical: Failed to revert voucher allocation", revertError);
+          console.error("Critical: Failed to log voucher activation failure", revertError);
         }
 
         return NextResponse.json(
@@ -216,18 +225,18 @@ export async function POST(request: Request) {
         });
       } catch (mikrotikError) {
         const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router comment update failed";
-        // Revert database status if MikroTik update fails
+        // Keep as redeemed but mark activation as failed
         try {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'available', reserved_until = NULL, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [errMsg, selectedVoucherCode]
+            args: [mobileNumber, salesperson || null, priceCharged, errMsg, selectedVoucherCode]
           });
         } catch (revertError) {
-          console.error("Critical: Failed to revert voucher allocation", revertError);
+          console.error("Critical: Failed to log voucher activation failure", revertError);
         }
 
         return NextResponse.json(
@@ -339,18 +348,18 @@ export async function POST(request: Request) {
         await updateOrCreateHotspotUser(config, code, code, profile, comment);
       } catch (mikrotikError) {
         const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
-        // Revert database status on failure
+        // Keep as redeemed but mark activation as failed
         try {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'available', reserved_until = NULL, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [errMsg, code]
+            args: [mobileNumber, salesperson || null, priceCharged, errMsg, code]
           });
         } catch (revertError) {
-          console.error("Critical: Failed to revert voucher allocation", revertError);
+          console.error("Critical: Failed to log voucher activation failure", revertError);
         }
 
         return NextResponse.json(
