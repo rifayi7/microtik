@@ -6,7 +6,7 @@ import { updateOrCreateHotspotUser } from "@/lib/mikrotik/queries";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const db = getDB();
+  const db = await getDB();
   let selectedVoucherCode: string | null = null;
   let validityDaysNum = 0;
   let mobileNumber = "";
@@ -35,32 +35,37 @@ export async function POST(request: Request) {
       }
 
       // Step 1: Transaction to select and mark the voucher as used
-      db.exec("BEGIN IMMEDIATE");
+      const tx = await db.transaction("write");
       try {
-        const selectStmt = db.prepare(`
-          SELECT voucher_code 
-          FROM vouchers 
-          WHERE validity_days = ? AND is_used = 0 AND router_id = ?
-          LIMIT 1
-        `);
-        const row = selectStmt.get(validityDaysNum, config.id) as { voucher_code: string } | undefined;
+        const selectResult = await tx.execute({
+          sql: `
+            SELECT voucher_code 
+            FROM vouchers 
+            WHERE validity_days = ? AND is_used = 0 AND router_id = ?
+            LIMIT 1
+          `,
+          args: [validityDaysNum, config.id]
+        });
+        const row = selectResult.rows[0];
 
         if (!row) {
           throw new Error("No vouchers available");
         }
 
-        selectedVoucherCode = row.voucher_code;
+        selectedVoucherCode = String(row.voucher_code);
 
-        const updateStmt = db.prepare(`
-          UPDATE vouchers 
-          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', sold_by = ?
-          WHERE voucher_code = ?
-        `);
-        updateStmt.run(mobileNumber, salesperson || null, selectedVoucherCode);
+        await tx.execute({
+          sql: `
+            UPDATE vouchers 
+            SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', sold_by = ?
+            WHERE voucher_code = ?
+          `,
+          args: [mobileNumber, salesperson || null, selectedVoucherCode]
+        });
 
-        db.exec("COMMIT");
+        await tx.commit();
       } catch (txError) {
-        db.exec("ROLLBACK");
+        await tx.rollback();
         return NextResponse.json(
           { error: txError instanceof Error ? txError.message : "Failed to allocate voucher" },
           { status: 400 }
@@ -78,16 +83,15 @@ export async function POST(request: Request) {
       } catch (mikrotikError) {
         // Revert the voucher status in database if MikroTik creation fails
         try {
-          db.exec("BEGIN IMMEDIATE");
-          const revertStmt = db.prepare(`
-            UPDATE vouchers 
-            SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
-            WHERE voucher_code = ?
-          `);
-          revertStmt.run(selectedVoucherCode);
-          db.exec("COMMIT");
+          await db.execute({
+            sql: `
+              UPDATE vouchers 
+              SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
+              WHERE voucher_code = ?
+            `,
+            args: [selectedVoucherCode]
+          });
         } catch (revertError) {
-          db.exec("ROLLBACK");
           console.error("Critical: Failed to revert voucher allocation", revertError);
         }
 
@@ -141,28 +145,35 @@ export async function POST(request: Request) {
       }
 
       // Mark as used in database
-      const checkStmt = db.prepare("SELECT is_used FROM vouchers WHERE voucher_code = ?");
-      const row = checkStmt.get(selectedVoucherCode) as { is_used: number } | undefined;
+      const checkResult = await db.execute({
+        sql: "SELECT is_used FROM vouchers WHERE voucher_code = ?",
+        args: [selectedVoucherCode],
+      });
+      const row = checkResult.rows[0];
       
       if (row) {
-        if (row.is_used === 1) {
+        if (Number(row.is_used) === 1) {
           return NextResponse.json({ error: "Voucher already redeemed" }, { status: 400 });
         }
         
         // Update database
-        const updateStmt = db.prepare(`
-          UPDATE vouchers 
-          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
-          WHERE voucher_code = ?
-        `);
-        updateStmt.run(mobileNumber, config.id, salesperson || null, selectedVoucherCode);
+        await db.execute({
+          sql: `
+            UPDATE vouchers 
+            SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
+            WHERE voucher_code = ?
+          `,
+          args: [mobileNumber, config.id, salesperson || null, selectedVoucherCode],
+        });
       } else {
         // Insert as new used voucher since it existed on router but not in local DB
-        const insertStmt = db.prepare(`
-          INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
-          VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
-        `);
-        insertStmt.run(selectedVoucherCode, validityDaysNum, mobileNumber, config.id, salesperson || null);
+        await db.execute({
+          sql: `
+            INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
+            VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
+          `,
+          args: [selectedVoucherCode, validityDaysNum, mobileNumber, config.id, salesperson || null],
+        });
       }
 
       // Update the user comment on MikroTik
@@ -177,16 +188,15 @@ export async function POST(request: Request) {
       } catch (mikrotikError) {
         // Revert database status if MikroTik update fails
         try {
-          db.exec("BEGIN IMMEDIATE");
-          const revertStmt = db.prepare(`
-            UPDATE vouchers 
-            SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
-            WHERE voucher_code = ?
-          `);
-          revertStmt.run(selectedVoucherCode);
-          db.exec("COMMIT");
+          await db.execute({
+            sql: `
+              UPDATE vouchers 
+              SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
+              WHERE voucher_code = ?
+            `,
+            args: [selectedVoucherCode]
+          });
         } catch (revertError) {
-          db.exec("ROLLBACK");
           console.error("Critical: Failed to revert voucher allocation", revertError);
         }
 
@@ -203,16 +213,19 @@ export async function POST(request: Request) {
       }
 
       // Check if it exists in local database
-      const checkStmt = db.prepare("SELECT is_used, validity_days FROM vouchers WHERE voucher_code = ?");
-      const row = checkStmt.get(code) as { is_used: number; validity_days: number } | undefined;
+      const checkResult = await db.execute({
+        sql: "SELECT is_used, validity_days FROM vouchers WHERE voucher_code = ?",
+        args: [code],
+      });
+      const row = checkResult.rows[0];
 
       let isNewVoucher = false;
 
       if (row) {
-        if (row.is_used === 1) {
+        if (Number(row.is_used) === 1) {
           return NextResponse.json({ error: "Voucher already redeemed" }, { status: 400 });
         }
-        validityDaysNum = row.validity_days;
+        validityDaysNum = Number(row.validity_days);
       } else {
         // If not in database, check if it exists on MikroTik router as a user
         const { toConnectionParams } = await import("@/lib/mikrotik/config");
@@ -261,18 +274,22 @@ export async function POST(request: Request) {
 
       // Mark as used in database
       if (!isNewVoucher) {
-        const updateStmt = db.prepare(`
-          UPDATE vouchers 
-          SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
-          WHERE voucher_code = ?
-        `);
-        updateStmt.run(mobileNumber, config.id, salesperson || null, code);
+        await db.execute({
+          sql: `
+            UPDATE vouchers 
+            SET is_used = 1, used_by = ?, used_at = datetime('now'), status = 'used', router_id = ?, sold_by = ?
+            WHERE voucher_code = ?
+          `,
+          args: [mobileNumber, config.id, salesperson || null, code],
+        });
       } else {
-        const insertStmt = db.prepare(`
-          INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
-          VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
-        `);
-        insertStmt.run(code, validityDaysNum, mobileNumber, config.id, salesperson || null);
+        await db.execute({
+          sql: `
+            INSERT INTO vouchers (voucher_code, validity_days, is_used, used_by, used_at, status, router_id, sold_by)
+            VALUES (?, ?, 1, ?, datetime('now'), 'used', ?, ?)
+          `,
+          args: [code, validityDaysNum, mobileNumber, config.id, salesperson || null],
+        });
       }
 
       // Update/Create on RouterOS
@@ -284,16 +301,15 @@ export async function POST(request: Request) {
       } catch (mikrotikError) {
         // Revert database status on failure
         try {
-          db.exec("BEGIN IMMEDIATE");
-          const revertStmt = db.prepare(`
-            UPDATE vouchers 
-            SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
-            WHERE voucher_code = ?
-          `);
-          revertStmt.run(code);
-          db.exec("COMMIT");
+          await db.execute({
+            sql: `
+              UPDATE vouchers 
+              SET is_used = 0, used_by = NULL, used_at = NULL, status = 'available'
+              WHERE voucher_code = ?
+            `,
+            args: [code]
+          });
         } catch (revertError) {
-          db.exec("ROLLBACK");
           console.error("Critical: Failed to revert voucher allocation", revertError);
         }
 

@@ -5,38 +5,41 @@ export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const db = getDB();
+    const db = await getDB();
 
     // 1. Get total sold vouchers count
-    const totalSoldStmt = db.prepare("SELECT COUNT(*) as count FROM vouchers WHERE is_used = 1");
-    const totalSoldRow = totalSoldStmt.get() as { count: number } | undefined;
-    const totalSold = totalSoldRow ? totalSoldRow.count : 0;
+    const totalSoldResult = await db.execute("SELECT COUNT(*) as count FROM vouchers WHERE is_used = 1");
+    const totalSoldRow = totalSoldResult.rows[0];
+    const totalSold = totalSoldRow ? Number(totalSoldRow.count) : 0;
 
     // 2. Get sales count grouped by salesperson
-    const salespersonStmt = db.prepare(`
+    const salespersonResult = await db.execute(`
       SELECT sold_by as name, COUNT(*) as count 
       FROM vouchers 
       WHERE is_used = 1 AND sold_by IS NOT NULL 
       GROUP BY sold_by
       ORDER BY count DESC
     `);
-    const salespersonRows = salespersonStmt.all() as { name: string; count: number }[];
+    const salespersonRows = salespersonResult.rows.map(row => ({
+      name: String(row.name),
+      count: Number(row.count)
+    }));
 
     // 3. Get detailed sales log
-    const salesLogStmt = db.prepare(`
+    const salesLogResult = await db.execute(`
       SELECT voucher_code as code, validity_days as validity, used_by as mobile, used_at as timestamp, sold_by as seller, router_id as routerId
       FROM vouchers
       WHERE is_used = 1
       ORDER BY used_at DESC
     `);
-    const salesLogs = salesLogStmt.all() as {
-      code: string;
-      validity: number;
-      mobile: string;
-      timestamp: string;
-      seller: string;
-      routerId: string;
-    }[];
+    const salesLogs = salesLogResult.rows.map(row => ({
+      code: String(row.code),
+      validity: Number(row.validity),
+      mobile: String(row.mobile ?? ""),
+      timestamp: String(row.timestamp ?? ""),
+      seller: String(row.seller ?? ""),
+      routerId: String(row.routerId ?? "")
+    }));
 
     return NextResponse.json({
       success: true,

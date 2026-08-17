@@ -1,21 +1,23 @@
-import { DatabaseSync } from "node:sqlite";
+import { createClient } from "@libsql/client";
 import path from "path";
-import fs from "fs";
 
-let dbInstance: DatabaseSync | null = null;
+// Initialize the Turso client
+// Falls back to a local file "vouchers.db" if env variables are not provided
+const dbUrl = process.env.TURSO_DATABASE_URL || "file:vouchers.db";
+const dbToken = process.env.TURSO_AUTH_TOKEN;
 
-export function getDB(): DatabaseSync {
-  if (dbInstance) return dbInstance;
+export const db = createClient({
+  url: dbUrl,
+  authToken: dbToken,
+});
 
-  const dbPath = path.resolve(process.cwd(), "vouchers.db");
-  dbInstance = new DatabaseSync(dbPath);
+let isInitialized = false;
 
-  // Enable WAL mode for better concurrency and set a busy timeout
-  dbInstance.exec("PRAGMA journal_mode = WAL;");
-  dbInstance.exec("PRAGMA busy_timeout = 5000;");
+export async function initializeDB() {
+  if (isInitialized) return db;
 
   // Create table matching the existing schema
-  dbInstance.exec(`
+  await db.execute(`
     CREATE TABLE IF NOT EXISTS vouchers (
       voucher_code TEXT PRIMARY KEY,
       validity_days INTEGER NOT NULL,
@@ -31,19 +33,29 @@ export function getDB(): DatabaseSync {
 
   // Ensure sold_by column exists for existing databases
   try {
-    dbInstance.exec("ALTER TABLE vouchers ADD COLUMN sold_by TEXT;");
+    await db.execute("ALTER TABLE vouchers ADD COLUMN sold_by TEXT;");
   } catch (e) {
-    // Column already exists
+    // Column already exists or table is new
   }
 
   // Check if seeding is required for default router ID '1'
-  const checkStmt = dbInstance.prepare("SELECT COUNT(*) as count FROM vouchers WHERE router_id = '1'");
-  const countRow = checkStmt.get() as { count: number };
-  if (countRow.count === 0) {
-    seedVouchersForRouter(dbInstance, '1');
+  const checkResult = await db.execute({
+    sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
+    args: ['1'],
+  });
+  
+  const count = Number(checkResult.rows[0]?.count ?? 0);
+  if (count === 0) {
+    await seedVouchersForRouter('1');
   }
 
-  return dbInstance;
+  isInitialized = true;
+  return db;
+}
+
+export async function getDB() {
+  await initializeDB();
+  return db;
 }
 
 function generateRandomCode(): string {
@@ -55,7 +67,7 @@ function generateRandomCode(): string {
   return code;
 }
 
-export function seedVouchersForRouter(db: DatabaseSync, routerId: string) {
+export async function seedVouchersForRouter(routerId: string) {
   const plans = [
     { days: 30, count: 100 },
     { days: 15, count: 50 },
@@ -63,24 +75,22 @@ export function seedVouchersForRouter(db: DatabaseSync, routerId: string) {
     { days: 7, count: 10 },
   ];
 
-  const stmt = db.prepare(`
-    INSERT INTO vouchers (voucher_code, validity_days, is_used, status, router_id)
-    VALUES (?, ?, 0, 'available', ?)
-  `);
+  const statements: { sql: string; args: any[] }[] = [];
 
   for (const plan of plans) {
     for (let i = 0; i < plan.count; i++) {
-      let code = generateRandomCode();
-      let inserted = false;
-      while (!inserted) {
-        try {
-          stmt.run(code, plan.days, routerId);
-          inserted = true;
-        } catch {
-          code = generateRandomCode();
-        }
-      }
+      const code = generateRandomCode();
+      statements.push({
+        sql: "INSERT OR IGNORE INTO vouchers (voucher_code, validity_days, is_used, status, router_id) VALUES (?, ?, 0, 'available', ?)",
+        args: [code, plan.days, routerId],
+      });
     }
   }
-  console.log(`Database seeded successfully with vouchers for router_id '${routerId}'.`);
+
+  try {
+    await db.batch(statements, "write");
+    console.log(`Database seeded successfully with vouchers for router_id '${routerId}'.`);
+  } catch (err) {
+    console.error("Seeding failed:", err);
+  }
 }

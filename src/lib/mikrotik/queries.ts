@@ -252,34 +252,42 @@ export async function fetchConnectedDashboard(
   let incomeMonth = 0;
 
   try {
-    const db = getDB();
+    const db = await getDB();
     
-    const todayStmt = db.prepare(`
-      SELECT validity_days, COUNT(*) as count 
-      FROM vouchers 
-      WHERE is_used = 1 
-        AND router_id = ? 
-        AND date(used_at) = date('now')
-      GROUP BY validity_days
-    `);
-    const todayRows = todayStmt.all(config.id) as { validity_days: number; count: number }[];
-    for (const row of todayRows) {
-      const price = row.validity_days === 30 ? 50 : row.validity_days === 15 ? 30 : row.validity_days === 10 ? 20 : row.validity_days === 7 ? 15 : row.validity_days * 2;
-      incomeToday += price * row.count;
+    const todayResult = await db.execute({
+      sql: `
+        SELECT validity_days, COUNT(*) as count 
+        FROM vouchers 
+        WHERE is_used = 1 
+          AND router_id = ? 
+          AND date(used_at) = date('now')
+        GROUP BY validity_days
+      `,
+      args: [config.id]
+    });
+    for (const row of todayResult.rows) {
+      const validityDays = Number(row.validity_days);
+      const count = Number(row.count);
+      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
+      incomeToday += price * count;
     }
 
-    const monthStmt = db.prepare(`
-      SELECT validity_days, COUNT(*) as count 
-      FROM vouchers 
-      WHERE is_used = 1 
-        AND router_id = ? 
-        AND strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')
-      GROUP BY validity_days
-    `);
-    const monthRows = monthStmt.all(config.id) as { validity_days: number; count: number }[];
-    for (const row of monthRows) {
-      const price = row.validity_days === 30 ? 50 : row.validity_days === 15 ? 30 : row.validity_days === 10 ? 20 : row.validity_days === 7 ? 15 : row.validity_days * 2;
-      incomeMonth += price * row.count;
+    const monthResult = await db.execute({
+      sql: `
+        SELECT validity_days, COUNT(*) as count 
+        FROM vouchers 
+        WHERE is_used = 1 
+          AND router_id = ? 
+          AND strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')
+        GROUP BY validity_days
+      `,
+      args: [config.id]
+    });
+    for (const row of monthResult.rows) {
+      const validityDays = Number(row.validity_days);
+      const count = Number(row.count);
+      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
+      incomeMonth += price * count;
     }
   } catch (dbError) {
     console.error("Failed to fetch income from DB", dbError);
@@ -387,31 +395,33 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
   let revenueToday = 0;
   let revenueMonth = 0;
   try {
-    const db = getDB();
-    const todayStmt = db.prepare(`
+    const db = await getDB();
+    const todayResult = await db.execute(`
       SELECT validity_days, COUNT(*) as count 
       FROM vouchers 
       WHERE is_used = 1 
         AND date(used_at) = date('now')
       GROUP BY validity_days
     `);
-    const todayRows = todayStmt.all() as { validity_days: number; count: number }[];
-    for (const row of todayRows) {
-      const price = row.validity_days === 30 ? 50 : row.validity_days === 15 ? 30 : row.validity_days === 10 ? 20 : row.validity_days === 7 ? 15 : row.validity_days * 2;
-      revenueToday += price * row.count;
+    for (const row of todayResult.rows) {
+      const validityDays = Number(row.validity_days);
+      const count = Number(row.count);
+      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
+      revenueToday += price * count;
     }
 
-    const monthStmt = db.prepare(`
+    const monthResult = await db.execute(`
       SELECT validity_days, COUNT(*) as count 
       FROM vouchers 
       WHERE is_used = 1 
         AND strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')
       GROUP BY validity_days
     `);
-    const monthRows = monthStmt.all() as { validity_days: number; count: number }[];
-    for (const row of monthRows) {
-      const price = row.validity_days === 30 ? 50 : row.validity_days === 15 ? 30 : row.validity_days === 10 ? 20 : row.validity_days === 7 ? 15 : row.validity_days * 2;
-      revenueMonth += price * row.count;
+    for (const row of monthResult.rows) {
+      const validityDays = Number(row.validity_days);
+      const count = Number(row.count);
+      const price = validityDays === 30 ? 50 : validityDays === 15 ? 30 : validityDays === 10 ? 20 : validityDays === 7 ? 15 : validityDays * 2;
+      revenueMonth += price * count;
     }
   } catch (dbError) {
     console.error("Failed to fetch dashboard stats revenue from DB", dbError);

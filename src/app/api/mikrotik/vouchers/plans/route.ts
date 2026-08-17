@@ -15,24 +15,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
     }
 
-    const db = getDB();
+    const db = await getDB();
     
     // Dynamically seed vouchers for this router ID if none exist
-    const checkStmt = db.prepare("SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?");
-    const countRow = checkStmt.get(config.id) as { count: number };
-    if (countRow.count === 0) {
-      seedVouchersForRouter(db, config.id);
+    const checkResult = await db.execute({
+      sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
+      args: [config.id],
+    });
+    const count = Number(checkResult.rows[0]?.count ?? 0);
+    if (count === 0) {
+      await seedVouchersForRouter(config.id);
     }
 
-    const stmt = db.prepare(`
-      SELECT validity_days AS days, COUNT(*) AS available_count
-      FROM vouchers
-      WHERE is_used = 0 AND router_id = ?
-      GROUP BY validity_days
-      ORDER BY validity_days ASC
-    `);
+    const result = await db.execute({
+      sql: `
+        SELECT validity_days AS days, COUNT(*) AS available_count
+        FROM vouchers
+        WHERE is_used = 0 AND router_id = ?
+        GROUP BY validity_days
+        ORDER BY validity_days ASC
+      `,
+      args: [config.id],
+    });
     
-    const rows = stmt.all(config.id) as { days: number; available_count: number }[];
+    const rows = result.rows.map(row => ({
+      days: Number(row.days),
+      available_count: Number(row.available_count)
+    }));
     return NextResponse.json(rows);
   } catch (error) {
     return NextResponse.json(
