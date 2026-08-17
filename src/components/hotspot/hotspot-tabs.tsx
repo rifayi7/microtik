@@ -28,7 +28,7 @@ export function HotspotTabs() {
             className={cn(
               "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
               active
-                ? "bg-[#f5a623] text-white"
+                ? "bg-[#4A60D6] text-white"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >

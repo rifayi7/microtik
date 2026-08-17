@@ -49,6 +49,85 @@ function LiveHeaderClock() {
   );
 }
 
+import type { StoredRouter } from "@/lib/router-store";
+
+const MOCK_ROUTER: StoredRouter = {
+  id: "demo-router",
+  sessionName: "SmartWifi-Demo",
+  host: "192.168.88.1",
+  port: 8728,
+  username: "demo",
+  password: "",
+  useTls: false,
+  hotspotName: "SmartWifi-Hotspot",
+  dnsName: "smartwifi.net",
+  currency: "AED",
+  sessionTimeout: "30 minutes",
+  liveReport: true,
+  phone: "",
+  status: "online",
+};
+
+const MOCK_DASHBOARD_DATA: ConnectedDashboardData = {
+  resource: {
+    cpuLoad: "8",
+    cpuCount: "4",
+    cpuFrequency: "716 MHz",
+    memoryUsed: "42.8 MB",
+    memoryTotal: "128.0 MB",
+    memoryPercent: 33,
+    hddUsed: "9.2 MB",
+    hddTotal: "16.0 MB",
+    hddPercent: 57,
+    uptime: "2w4d18h",
+    version: "7.12.1",
+    boardName: "hAP ac lite",
+    identity: "SmartWifi-Demo",
+  },
+  activeSessions: 18,
+  totalUsers: 120,
+  incomeToday: 85,
+  incomeMonth: 2150,
+  currency: "AED",
+  appLogs: [
+    "10:47:12 Loading Hotspot Info",
+    "10:47:13 Connected in Demo Mode",
+    "10:47:14 Dashboard synced",
+  ],
+  hotspotLogs: [
+    { id: "log-1", time: "22:45:01", user: "guest_7342", message: "guest_7342 connected (IP: 192.168.88.254)" },
+    { id: "log-2", time: "22:41:12", user: "guest_1109", message: "guest_1109 logged in successfully" },
+    { id: "log-3", time: "22:35:48", user: "admin", message: "admin logged in from 192.168.88.15" },
+    { id: "log-4", time: "22:15:22", user: "guest_8922", message: "guest_8922 disconnected: keepalive timeout" },
+  ],
+  sessions: [
+    {
+      id: "sess-1",
+      username: "guest_7342",
+      routerId: "demo-router",
+      routerName: "SmartWifi-Demo",
+      ipAddress: "192.168.88.254",
+      macAddress: "00:0C:42:F3:81:4A",
+      uptime: "00:15:32",
+      download: "24.5 MB",
+      upload: "4.8 MB",
+      profile: "1-Day",
+    },
+    {
+      id: "sess-2",
+      username: "guest_1109",
+      routerId: "demo-router",
+      routerName: "SmartWifi-Demo",
+      ipAddress: "192.168.88.253",
+      macAddress: "00:0C:42:E2:12:9F",
+      uptime: "01:22:10",
+      download: "95.2 MB",
+      upload: "18.1 MB",
+      profile: "30-Days",
+    },
+  ],
+};
+
 export function ConnectedDashboard() {
   const { activeRouter } = useRouterContext();
   const [data, setData] = useState<ConnectedDashboardData | null>(null);
@@ -56,7 +135,11 @@ export function ConnectedDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!activeRouter) return;
+    if (!activeRouter) {
+      setData(MOCK_DASHBOARD_DATA);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -67,6 +150,8 @@ export function ConnectedDashboard() {
       setData(payload.dashboard);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
+      // Fallback to mock data if no data was loaded previously
+      setData((prev) => prev || MOCK_DASHBOARD_DATA);
     } finally {
       setLoading(false);
     }
@@ -74,32 +159,39 @@ export function ConnectedDashboard() {
 
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), 30000);
-    return () => clearInterval(id);
-  }, [load]);
-
-  if (!activeRouter) return null;
+    if (activeRouter) {
+      const id = setInterval(() => void load(), 30000);
+      return () => clearInterval(id);
+    }
+  }, [load, activeRouter]);
 
   if (loading && !data) {
     return <TableSkeleton rows={8} />;
   }
 
-  if (error) {
-    return (
-      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-        {error}
-      </div>
-    );
-  }
-
-  if (!data) return null;
+  const displayData = data || MOCK_DASHBOARD_DATA;
+  const routerInfo = activeRouter || MOCK_ROUTER;
+  const isDemo = !activeRouter || !!error;
 
   return (
     <div className="space-y-4">
+      {isDemo && (
+        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-800 dark:text-yellow-200">
+          <div className="font-semibold flex items-center gap-1.5">
+            <span>⚠️ Demo Mode Active</span>
+          </div>
+          <p className="text-xs mt-1 opacity-90">
+            {!activeRouter 
+              ? "No active router connected. Please go to Settings -> Routers to connect a MikroTik router. Showing simulated data."
+              : `Unable to connect to router "${activeRouter.sessionName}". Showing simulated/fallback data. Error: ${error}`}
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 dark:bg-card">
         <div className="inline-flex items-center gap-2 font-semibold">
           <Tag className="size-4" />
-          {activeRouter.sessionName.toUpperCase()}
+          {routerInfo.sessionName.toUpperCase()}
         </div>
         <LiveHeaderClock />
       </div>
@@ -107,7 +199,7 @@ export function ConnectedDashboard() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="stat-card-red border-0 text-white shadow-md">
           <CardContent className="flex h-36 flex-col justify-between p-5">
-            <p className="text-5xl font-bold">{data.activeSessions}</p>
+            <p className="text-5xl font-bold">{displayData.activeSessions}</p>
             <div className="flex items-end justify-between">
               <span className="text-sm opacity-90">Active</span>
               <Wifi className="size-8 opacity-80" />
@@ -116,7 +208,7 @@ export function ConnectedDashboard() {
         </Card>
         <Card className="stat-card-yellow border-0 text-white shadow-md">
           <CardContent className="flex h-36 flex-col justify-between p-5">
-            <p className="text-5xl font-bold">{data.totalUsers}</p>
+            <p className="text-5xl font-bold">{displayData.totalUsers}</p>
             <div className="flex items-end justify-between">
               <span className="text-sm opacity-90">Users</span>
               <Users className="size-8 opacity-80" />
@@ -126,8 +218,8 @@ export function ConnectedDashboard() {
         <Card className="stat-card-income border-0 text-white shadow-md">
           <CardContent className="flex h-36 flex-col justify-between p-5">
             <div className="space-y-1 text-sm">
-              <p>This month: {formatCurrency(data.incomeMonth, data.currency)}</p>
-              <p>Today: {formatCurrency(data.incomeToday, data.currency)}</p>
+              <p>This month: {formatCurrency(displayData.incomeMonth, displayData.currency)}</p>
+              <p>Today: {formatCurrency(displayData.incomeToday, displayData.currency)}</p>
             </div>
             <div className="flex items-end justify-between">
               <span className="text-sm opacity-90">Income</span>
@@ -141,7 +233,7 @@ export function ConnectedDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              Resource {activeRouter.sessionName.toUpperCase()}
+              Resource {routerInfo.sessionName.toUpperCase()}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -151,10 +243,10 @@ export function ConnectedDashboard() {
                   <Cpu className="size-4" /> CPU Load
                 </span>
                 <span>
-                  {data.resource.cpuLoad}% {data.resource.cpuCount}x {data.resource.cpuFrequency}
+                  {displayData.resource.cpuLoad}% {displayData.resource.cpuCount}x {displayData.resource.cpuFrequency}
                 </span>
               </div>
-              <Progress value={Number(data.resource.cpuLoad)} className="h-2" />
+              <Progress value={Number(displayData.resource.cpuLoad)} className="h-2" />
             </div>
             <div>
               <div className="mb-1 flex justify-between text-sm">
@@ -162,10 +254,10 @@ export function ConnectedDashboard() {
                   <MemoryStick className="size-4" /> Memory
                 </span>
                 <span>
-                  {data.resource.memoryUsed} / {data.resource.memoryTotal}
+                  {displayData.resource.memoryUsed} / {displayData.resource.memoryTotal}
                 </span>
               </div>
-              <Progress value={data.resource.memoryPercent} className="h-2" />
+              <Progress value={displayData.resource.memoryPercent} className="h-2" />
             </div>
             <div>
               <div className="mb-1 flex justify-between text-sm">
@@ -173,10 +265,10 @@ export function ConnectedDashboard() {
                   <HardDrive className="size-4" /> HDD
                 </span>
                 <span>
-                  {data.resource.hddUsed} / {data.resource.hddTotal}
+                  {displayData.resource.hddUsed} / {displayData.resource.hddTotal}
                 </span>
               </div>
-              <Progress value={data.resource.hddPercent} className="h-2" />
+              <Progress value={displayData.resource.hddPercent} className="h-2" />
             </div>
           </CardContent>
         </Card>
@@ -188,19 +280,19 @@ export function ConnectedDashboard() {
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between border-b py-2">
               <span className="text-muted-foreground">Uptime</span>
-              <span>{data.resource.uptime}</span>
+              <span>{displayData.resource.uptime}</span>
             </div>
             <div className="flex justify-between border-b py-2">
               <span className="text-muted-foreground">Board Name</span>
-              <span>{data.resource.boardName}</span>
+              <span>{displayData.resource.boardName}</span>
             </div>
             <div className="flex justify-between border-b py-2">
               <span className="text-muted-foreground">Model</span>
-              <span>{data.resource.boardName}</span>
+              <span>{displayData.resource.boardName}</span>
             </div>
             <div className="flex justify-between py-2">
               <span className="text-muted-foreground">Router OS</span>
-              <span>{data.resource.version} (stable)</span>
+              <span>{displayData.resource.version} (stable)</span>
             </div>
           </CardContent>
         </Card>
@@ -228,8 +320,8 @@ export function ConnectedDashboard() {
             </CardHeader>
             <CardContent>
               <div className="max-h-40 space-y-1 overflow-y-auto text-xs font-mono">
-                {data.appLogs.map((line) => (
-                  <p key={line}>{line}</p>
+                {displayData.appLogs.map((line, idx) => (
+                  <p key={idx}>{line}</p>
                 ))}
               </div>
             </CardContent>
@@ -250,7 +342,7 @@ export function ConnectedDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.hotspotLogs.map((log) => (
+                    {displayData.hotspotLogs.map((log) => (
                       <tr key={log.id} className="border-b border-muted/50">
                         <td className="py-1.5 pr-2 align-top">{log.time}</td>
                         <td className="py-1.5 pr-2 align-top">{log.user}</td>

@@ -1,25 +1,33 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useRouterContext } from "@/contexts/router-context";
 
-const connectedPaths = ["/dashboard", "/hotspot", "/reports"];
+const connectedPaths = ["/hotspot", "/reports"];
 
 export function RouteGuard({ children }: { children: React.ReactNode }) {
   const { isConnected, isReady } = useRouterContext();
   const router = useRouter();
   const pathname = usePathname();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
+    const loggedIn = typeof window !== "undefined" && localStorage.getItem("is_logged_in") === "true";
+    setIsAuthenticated(loggedIn);
+
+    if (!loggedIn) {
+      router.replace("/login");
+      return;
+    }
+
     if (!isReady) return;
 
     const needsConnection = connectedPaths.some(
       (path) => pathname === path || pathname.startsWith(`${path}/`)
     );
-    const isRoot = pathname === "/";
 
-    if ((needsConnection || isRoot) && !isConnected) {
+    if (needsConnection && !isConnected) {
       router.replace("/settings/routers");
       return;
     }
@@ -29,12 +37,12 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (isConnected && (pathname === "/" || pathname === "/settings")) {
+    if (pathname === "/" || pathname === "/settings") {
       router.replace("/dashboard");
     }
   }, [isReady, isConnected, pathname, router]);
 
-  if (!isReady) {
+  if (!isReady || isAuthenticated === null || !isAuthenticated) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground">
         Loading...

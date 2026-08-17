@@ -117,7 +117,7 @@ export function SetupRouterList() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        render={<Link href={`/settings/routers/${router.id}`} />}
+                        render={<Link href={`/routers/${router.id}`} />}
                         nativeButton={false}
                       >
                         <Settings className="size-4" />

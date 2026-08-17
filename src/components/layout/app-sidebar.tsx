@@ -79,7 +79,7 @@ export function AppSidebar() {
 
         <SidebarHeader className="border-b bg-transparent px-3 py-4">
           <div className="mx-auto flex size-16 items-center justify-center rounded-2xl border-4 border-white bg-white shadow-sm">
-            <span className="text-3xl font-black text-[#f5a623]">T</span>
+            <span className="text-3xl font-black text-[#4A60D6]">T</span>
           </div>
           {isConnected && (
             <Select
@@ -110,7 +110,7 @@ export function AppSidebar() {
                   className={cn(
                     "h-10 rounded-full px-4 text-sm font-medium",
                     isActive(item.href) &&
-                      "bg-[#f5a623] text-white hover:bg-[#e09515] hover:text-white data-active:bg-[#f5a623] data-active:text-white"
+                      "bg-[#4A60D6] text-white hover:bg-[#3b50c0] hover:text-white data-active:bg-[#4A60D6] data-active:text-white"
                   )}
                 >
                   <item.icon className="size-4" />
@@ -144,6 +144,11 @@ export function AppSidebar() {
                 <SidebarMenuButton
                   render={<Link href={item.href} />}
                   className="text-destructive hover:text-destructive"
+                  onClick={() => {
+                    if (item.title === "Sign out") {
+                      localStorage.removeItem("is_logged_in");
+                    }
+                  }}
                 >
                   <item.icon />
                   <span>{item.title}</span>

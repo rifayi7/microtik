@@ -23,16 +23,17 @@ export default function LoginPage() {
     setError(null);
 
     const formData = new FormData(e.currentTarget);
-    const email = formData.get("email") as string;
+    const username = formData.get("username") as string;
     const password = formData.get("password") as string;
 
     await new Promise((r) => setTimeout(r, 1000));
 
-    if (email === "admin@hotspot.pro" && password === "admin") {
+    if (username === "Fasil@2020" && password === "1234") {
       toast.success("Welcome back!");
+      localStorage.setItem("is_logged_in", "true");
       router.push("/");
     } else {
-      setError("Invalid email or password");
+      setError("Invalid username or password");
       setLoading(false);
     }
   };
@@ -79,14 +80,14 @@ export default function LoginPage() {
                 </div>
               )}
               <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="username">Username</Label>
                 <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="admin@hotspot.pro"
+                  id="username"
+                  name="username"
+                  type="text"
+                  placeholder="Enter username"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                 />
               </div>
               <div className="grid gap-2">
