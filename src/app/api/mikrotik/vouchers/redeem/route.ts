@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const db = await getDB();
   let selectedVoucherCode: string | null = null;
+  let finalVoucherCode: string | null = null;
   let validityDaysNum = 0;
   let mobileNumber = "";
 
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
         }
 
         selectedVoucherCode = String(row.voucher_code);
+        finalVoucherCode = selectedVoucherCode;
 
         await tx.execute({
           sql: `
@@ -158,6 +160,7 @@ export async function POST(request: Request) {
       }
 
       selectedVoucherCode = routerUserRecord.name;
+      finalVoucherCode = selectedVoucherCode;
       const profileName = routerUserRecord.profile;
       
       // Parse validity days from profile name
@@ -189,60 +192,150 @@ export async function POST(request: Request) {
       });
       const row = checkResult.rows[0];
       
-      if (row) {
-        if (row.status === 'redeemed') {
-          return NextResponse.json({ error: "Voucher already redeemed" }, { status: 400 });
-        }
-        
-        // Update database
-        await db.execute({
-          sql: `
+      let isFallbackVoucher = false;
+
+      if (row && row.status === 'redeemed') {
+        console.log(`Voucher ${selectedVoucherCode} is already redeemed in database. Allocating a fallback available voucher for ${validityDaysNum} days...`);
+        // Allocate a new available code instead of failing with 400
+        const tx = await db.transaction("write");
+        try {
+          await tx.execute(`
             UPDATE vouchers 
-            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
-            WHERE voucher_code = ?
-          `,
-          args: [mobileNumber, salesperson || null, priceCharged, config.id, selectedVoucherCode],
-        });
-      } else {
-        // Insert as new used voucher since it existed on router but not in local DB
-        await db.execute({
-          sql: `
-            INSERT INTO vouchers (voucher_code, validity_days, status, used_by, used_at, router_id, sold_by, price_charged, activation_status)
-            VALUES (?, ?, 'redeemed', ?, datetime('now'), ?, ?, ?, 'success')
-          `,
-          args: [selectedVoucherCode, validityDaysNum, mobileNumber, config.id, salesperson || null, priceCharged],
-        });
+            SET status = 'available', reserved_until = NULL 
+            WHERE status = 'reserved' 
+              AND reserved_until < datetime('now')
+          `);
+
+          const selectResult = await tx.execute({
+            sql: `
+              SELECT voucher_code 
+              FROM vouchers 
+              WHERE validity_days = ? AND status = 'available' AND router_id = ?
+              LIMIT 1
+            `,
+            args: [validityDaysNum, config.id]
+          });
+          const newRow = selectResult.rows[0];
+
+          if (!newRow) {
+            throw new Error(`No other available vouchers of this duration (${validityDaysNum} days) in database`);
+          }
+
+          finalVoucherCode = String(newRow.voucher_code);
+          isFallbackVoucher = true;
+
+          // Reserve it
+          await tx.execute({
+            sql: `
+              UPDATE vouchers 
+              SET status = 'reserved', reserved_until = datetime('now', '+10 minutes'), activation_status = 'pending'
+              WHERE voucher_code = ?
+            `,
+            args: [finalVoucherCode]
+          });
+
+          await tx.commit();
+        } catch (txError) {
+          await tx.rollback();
+          return NextResponse.json(
+            { error: `Voucher already redeemed. Fallback allocation failed: ${txError instanceof Error ? txError.message : "Unknown error"}` },
+            { status: 400 }
+          );
+        }
       }
 
-      // Update the user comment on MikroTik
-      const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
-      try {
-        await withMikrotikClient(toConnectionParams(config), async (client) => {
-          await client.write("/ip/hotspot/user/set", [
-            `=.id=${voucherId}`,
-            `=comment=${comment}`,
-          ]);
-        });
-      } catch (mikrotikError) {
-        const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router comment update failed";
-        // Keep as redeemed but mark activation as failed
-        try {
+      if (!isFallbackVoucher) {
+        if (row) {
+          // Update database for the existing voucher
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
               WHERE voucher_code = ?
             `,
-            args: [mobileNumber, salesperson || null, priceCharged, errMsg, selectedVoucherCode]
+            args: [mobileNumber, salesperson || null, priceCharged, config.id, selectedVoucherCode],
           });
-        } catch (revertError) {
-          console.error("Critical: Failed to log voucher activation failure", revertError);
+        } else {
+          // Insert as new used voucher since it existed on router but not in local DB
+          await db.execute({
+            sql: `
+              INSERT INTO vouchers (voucher_code, validity_days, status, used_by, used_at, router_id, sold_by, price_charged, activation_status)
+              VALUES (?, ?, 'redeemed', ?, datetime('now'), ?, ?, ?, 'success')
+            `,
+            args: [selectedVoucherCode, validityDaysNum, mobileNumber, config.id, salesperson || null, priceCharged],
+          });
         }
 
-        return NextResponse.json(
-          { error: `Router connection failed: ${errMsg}` },
-          { status: 502 }
-        );
+        // Update the user comment on MikroTik
+        const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
+        try {
+          await withMikrotikClient(toConnectionParams(config), async (client) => {
+            await client.write("/ip/hotspot/user/set", [
+              `=.id=${voucherId}`,
+              `=comment=${comment}`,
+            ]);
+          });
+        } catch (mikrotikError) {
+          const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router comment update failed";
+          // Keep as redeemed but mark activation as failed
+          try {
+            await db.execute({
+              sql: `
+                UPDATE vouchers 
+                SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+                WHERE voucher_code = ?
+              `,
+              args: [mobileNumber, salesperson || null, priceCharged, errMsg, selectedVoucherCode]
+            });
+          } catch (revertError) {
+            console.error("Critical: Failed to log voucher activation failure", revertError);
+          }
+
+          return NextResponse.json(
+            { error: `Router connection failed: ${errMsg}` },
+            { status: 502 }
+          );
+        }
+      } else {
+        // Create the newly allocated fallback voucher user on the router
+        const username = finalVoucherCode;
+        const password = finalVoucherCode;
+        const profile = `${validityDaysNum}-Days`;
+        const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
+
+        try {
+          await updateOrCreateHotspotUser(config, username, password, profile, comment);
+
+          // Update fallback to redeemed in database on success
+          await db.execute({
+            sql: `
+              UPDATE vouchers 
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+              WHERE voucher_code = ?
+            `,
+            args: [mobileNumber, salesperson || null, priceCharged, config.id, finalVoucherCode]
+          });
+        } catch (mikrotikError) {
+          const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
+          // Keep as redeemed but mark activation as failed
+          try {
+            await db.execute({
+              sql: `
+                UPDATE vouchers 
+                SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+                WHERE voucher_code = ?
+              `,
+              args: [mobileNumber, salesperson || null, priceCharged, errMsg, finalVoucherCode]
+            });
+          } catch (revertError) {
+            console.error("Critical: Failed to log voucher activation failure", revertError);
+          }
+
+          return NextResponse.json(
+            { error: `Router connection failed: ${errMsg}` },
+            { status: 502 }
+          );
+        }
       }
     } else if (voucherCode) {
       // Flow for redeeming by manual voucher code (username typed by user)
@@ -310,6 +403,7 @@ export async function POST(request: Request) {
       }
 
       selectedVoucherCode = code;
+      finalVoucherCode = code;
 
       // Fetch dynamic price from database or fallback to defaults
       const priceResult = await db.execute({
@@ -374,7 +468,7 @@ export async function POST(request: Request) {
     // Return success response
     return NextResponse.json({
       success: true,
-      code: selectedVoucherCode,
+      code: finalVoucherCode,
       validity: validityDaysNum,
       message: "Recharge completed successfully",
     });
