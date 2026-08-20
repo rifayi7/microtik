@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       });
       const priceCharged = priceResult.rows[0] 
         ? Number(priceResult.rows[0].price) 
-        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+        : (validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
 
       // Step 1: Transaction to select and mark the voucher as reserved
       const tx = await db.transaction("write");
@@ -183,7 +183,7 @@ export async function POST(request: Request) {
       });
       const priceCharged = priceResult.rows[0] 
         ? Number(priceResult.rows[0].price) 
-        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+        : (validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
 
       // Check status in database
       const checkResult = await db.execute({
@@ -412,7 +412,7 @@ export async function POST(request: Request) {
       });
       const priceCharged = priceResult.rows[0] 
         ? Number(priceResult.rows[0].price) 
-        : (validityDaysNum === 30 ? 50 : validityDaysNum === 15 ? 30 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+        : (validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
 
       // Mark as used in database
       if (!isNewVoucher) {
