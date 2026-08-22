@@ -1,8 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -50,8 +60,11 @@ function LiveClock() {
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const routerNav = useRouter();
   const { isConnected, activeRouter, routers, connectRouter, disconnectRouter } =
     useRouterContext();
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+  const [showSignoutModal, setShowSignoutModal] = useState(false);
 
   const navigation = isConnected ? connectedNavigation : setupNavigation;
 
@@ -132,33 +145,84 @@ export function AppSidebar() {
             {isConnected && (
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  onClick={disconnectRouter}
+                  onClick={() => setShowDisconnectModal(true)}
                   className="text-destructive hover:text-destructive"
                 >
                   Disconnect
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}
-            {footerNavigation.map((item) => (
-              <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton
-                  render={<Link href={item.href} />}
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => {
-                    if (item.title === "Sign out") {
-                      localStorage.removeItem("is_logged_in");
-                    }
-                  }}
-                >
-                  <item.icon />
-                  <span>{item.title}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {footerNavigation.map((item) => {
+              const isSignout = item.title === "Sign out";
+              return (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    render={isSignout ? undefined : <Link href={item.href} />}
+                    className="text-destructive hover:text-destructive"
+                    onClick={(e) => {
+                      if (isSignout) {
+                        e.preventDefault();
+                        setShowSignoutModal(true);
+                      }
+                    }}
+                  >
+                    <item.icon />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
           </SidebarMenu>
         </SidebarFooter>
         <SidebarRail />
       </div>
+
+      {/* Disconnect Confirmation Modal */}
+      <AlertDialog open={showDisconnectModal} onOpenChange={setShowDisconnectModal}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect router?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to disconnect from &quot;{activeRouter?.sessionName}&quot;?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                disconnectRouter();
+                setShowDisconnectModal(false);
+              }}
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Sign Out Confirmation Modal */}
+      <AlertDialog open={showSignoutModal} onOpenChange={setShowSignoutModal}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign out?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to sign out of the admin panel?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                localStorage.removeItem("is_logged_in");
+                setShowSignoutModal(false);
+                routerNav.push("/login");
+              }}
+            >
+              Sign out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sidebar>
   );
 }

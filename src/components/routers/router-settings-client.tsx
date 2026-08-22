@@ -184,6 +184,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
         });
       }
       toast.success("Router settings saved successfully");
+      routerNav.push("/settings/routers");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -216,7 +217,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
       >
         <div className="flex flex-wrap gap-2">
           <StatusBadge status={data.status} />
-          <Button variant="outline" render={<Link href="/routers" />} nativeButton={false}>
+          <Button variant="outline" render={<Link href="/settings/routers" />} nativeButton={false}>
             <X className="size-4" />
             Close
           </Button>
@@ -454,7 +455,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
                   removeRouter(routerId);
                   toast.success("Router removed successfully");
                 }
-                routerNav.push("/routers");
+                routerNav.push("/settings/routers");
               }}
             >
               {isEnvRouter ? "Got it" : "Remove"}

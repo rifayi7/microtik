@@ -31,7 +31,7 @@ export default function LoginPage() {
     if (username?.trim().toLowerCase() === "admin" && password === "admin123") {
       toast.success("Welcome back!");
       localStorage.setItem("is_logged_in", "true");
-      router.push("/");
+      router.push("/dashboard");
     } else {
       setError("Invalid username or password");
       setLoading(false);
