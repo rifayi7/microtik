@@ -54,7 +54,7 @@ export function ConnectDialog({
           host: router.ipAddress,
           username: router.username,
           password: router.password,
-          port: 8728,
+          port: router.port ?? 8728,
         }),
       });
 

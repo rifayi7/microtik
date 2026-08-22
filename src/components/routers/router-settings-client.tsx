@@ -103,6 +103,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
         sessionName: localRouter.sessionName,
         hotspotName: localRouter.hotspotName ?? localRouter.sessionName,
         ipAddress: localRouter.host,
+        port: localRouter.port,
         username: localRouter.username,
         password: localRouter.password ?? "",
         dnsName: localRouter.dnsName ?? "",
@@ -169,6 +170,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
         phone: data.phone,
         liveReport: data.liveReport,
         host: data.ipAddress,
+        port: data.port !== undefined ? Number(data.port) : undefined,
         username: data.username,
         password: data.password,
         camp: data.camp,
@@ -268,6 +270,17 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
                 />
               </div>
               <div className="grid gap-2">
+                <Label htmlFor="port">Port</Label>
+                <Input
+                  id="port"
+                  type="number"
+                  placeholder="8728"
+                  value={data.port !== undefined ? String(data.port) : ""}
+                  onChange={(e) => update("port", e.target.value ? Number(e.target.value) : undefined)}
+                  className="font-mono"
+                />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
                 <Label>Username</Label>
                 <Input
                   value={data.username}

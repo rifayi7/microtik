@@ -144,6 +144,7 @@ export function toRouterModel(
     sessionName: config.sessionName,
     hotspotName: config.hotspotName ?? config.sessionName,
     ipAddress: config.host,
+    port: config.port,
     username: config.username,
     password: "",
     dnsName: config.dnsName ?? "",

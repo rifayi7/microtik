@@ -5,6 +5,7 @@ export interface Router {
   sessionName: string;
   hotspotName: string;
   ipAddress: string;
+  port?: number;
   username: string;
   password: string;
   dnsName: string;

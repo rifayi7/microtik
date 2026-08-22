@@ -28,7 +28,7 @@ export default function LoginPage() {
 
     await new Promise((r) => setTimeout(r, 1000));
 
-    if (username === "Fasil@2020" && password === "1234") {
+    if (username === "admin" && password === "admin123") {
       toast.success("Welcome back!");
       localStorage.setItem("is_logged_in", "true");
       router.push("/");
