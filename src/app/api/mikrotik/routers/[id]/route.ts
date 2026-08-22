@@ -9,7 +9,7 @@ import {
   isMikrotikConfigured,
   toRouterModel,
 } from "@/lib/mikrotik/config";
-import { fetchRouterWithStatus } from "@/lib/mikrotik/queries";
+import { fetchRouterWithStatus, testRouterConnection } from "@/lib/mikrotik/queries";
 
 export const runtime = "nodejs";
 
@@ -47,6 +47,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         liveReport: Boolean(row.liveReport ?? true),
         phone: String(row.phone ?? ""),
         camp: row.camp ? String(row.camp) : undefined,
+        serialNumber: row.serialNumber ? String(row.serialNumber) : undefined,
       };
     } else if (isMikrotikConfigured()) {
       // 2. Fallback to env config
@@ -62,6 +63,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       router: {
         ...router,
         password: config.password,
+        serialNumber: config.serialNumber,
       },
       configured: true,
     });
@@ -99,17 +101,52 @@ export async function PUT(request: Request, { params }: RouteParams) {
       const phone = body.phone ?? String(existing.phone ?? "");
       const liveReport = body.liveReport !== undefined ? (body.liveReport ? 1 : 0) : Number(existing.liveReport);
 
+      let serialNumber = String(existing.serialNumber ?? "");
+      
+      // If connection parameters changed, re-fetch the serial number
+      if (
+        host !== String(existing.host) ||
+        port !== Number(existing.port) ||
+        username !== String(existing.username) ||
+        password !== String(existing.password ?? "")
+      ) {
+        try {
+          const connTest = await testRouterConnection({
+            id,
+            sessionName,
+            host,
+            port,
+            username,
+            password,
+            useTls: Boolean(useTls),
+            hotspotName,
+            dnsName,
+            currency,
+            camp,
+            sessionTimeout,
+            phone,
+            liveReport: Boolean(liveReport),
+          });
+          if (connTest.success) {
+            serialNumber = connTest.serialNumber ?? "";
+          }
+        } catch (e) {
+          console.warn("Could not refresh serial number on update:", e);
+        }
+      }
+
       await database.execute({
         sql: `
           UPDATE routers SET
             sessionName = ?, host = ?, port = ?, username = ?, password = ?, useTls = ?,
-            hotspotName = ?, dnsName = ?, currency = ?, camp = ?, sessionTimeout = ?, phone = ?, liveReport = ?
+            hotspotName = ?, dnsName = ?, currency = ?, camp = ?, sessionTimeout = ?, phone = ?, liveReport = ?,
+            serialNumber = ?
           WHERE id = ?
         `,
         args: [
           sessionName, host, port, username, password, useTls,
           hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport,
-          id
+          serialNumber, id
         ]
       });
 
@@ -129,6 +166,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         sessionTimeout,
         phone,
         liveReport: Boolean(liveReport),
+        serialNumber,
         status: "unknown"
       };
 

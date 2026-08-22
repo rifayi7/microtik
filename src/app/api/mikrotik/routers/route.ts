@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { getConfiguredRouters, isMikrotikConfigured } from "@/lib/mikrotik/config";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
-import { fetchHotspotUsersForRouter } from "@/lib/mikrotik/queries";
+import { fetchHotspotUsersForRouter, testRouterConnection } from "@/lib/mikrotik/queries";
 
 export const runtime = "nodejs";
 
@@ -27,6 +27,7 @@ export async function GET() {
       liveReport: Boolean(row.liveReport ?? true),
       phone: String(row.phone ?? ""),
       camp: row.camp ? String(row.camp) : undefined,
+      serialNumber: row.serialNumber ? String(row.serialNumber) : undefined,
       status: "unknown",
     }));
 
@@ -50,6 +51,7 @@ export async function GET() {
         liveReport: config.liveReport ?? true,
         phone: config.phone ?? "",
         camp: config.camp,
+        serialNumber: undefined,
         status: "unknown",
       }));
     }
@@ -133,13 +135,41 @@ export async function POST(request: Request) {
     }
 
     const id = `router-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    // Try to connect to router and extract its physical hardware serial number
+    const configToTest = {
+      id,
+      sessionName,
+      host,
+      port: Number(port),
+      username,
+      password: password ?? "",
+      useTls: Boolean(useTls),
+      hotspotName: hotspotName ?? sessionName,
+      dnsName: dnsName ?? "",
+      currency: currency ?? "AED",
+      camp: camp ?? "",
+      sessionTimeout: sessionTimeout ?? "30 minutes",
+      phone: phone ?? "",
+      liveReport: liveReport !== false,
+    };
+
+    let serialNumber = "";
+    try {
+      const connTest = await testRouterConnection(configToTest);
+      if (connTest.success) {
+        serialNumber = connTest.serialNumber ?? "";
+      }
+    } catch (e) {
+      console.warn("Could not query serial number during creation:", e);
+    }
     
     await database.execute({
       sql: `
         INSERT INTO routers (
           id, sessionName, host, port, username, password, useTls, 
-          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         id,
@@ -156,6 +186,7 @@ export async function POST(request: Request) {
         sessionTimeout ?? "30 minutes",
         phone ?? "",
         liveReport !== false ? 1 : 0,
+        serialNumber,
       ],
     });
 

@@ -68,8 +68,8 @@ export async function POST(request: Request) {
           sql: `
             INSERT OR IGNORE INTO routers (
               id, sessionName, host, port, username, password, useTls, 
-              hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           args: [
             config.id,
@@ -86,6 +86,7 @@ export async function POST(request: Request) {
             config.sessionTimeout ?? "30 minutes",
             config.phone ?? "",
             config.liveReport !== false ? 1 : 0,
+            result.serialNumber ?? "",
           ],
         });
 

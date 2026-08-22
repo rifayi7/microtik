@@ -15,6 +15,7 @@ export interface MikrotikRouterConfig {
   sessionTimeout?: string;
   phone?: string;
   liveReport?: boolean;
+  serialNumber?: string;
 }
 
 export interface MikrotikConnectionParams {

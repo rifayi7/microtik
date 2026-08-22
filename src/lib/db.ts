@@ -50,13 +50,21 @@ export async function initializeDB() {
       camp TEXT,
       sessionTimeout TEXT DEFAULT '30 minutes',
       phone TEXT,
-      liveReport INTEGER NOT NULL DEFAULT 1
+      liveReport INTEGER NOT NULL DEFAULT 1,
+      serialNumber TEXT
     );
   `);
 
   // Ensure sold_by column exists for existing databases
   try {
     await db.execute("ALTER TABLE vouchers ADD COLUMN sold_by TEXT;");
+  } catch (e) {
+    // Column already exists or table is new
+  }
+
+  // Ensure serialNumber column exists in routers table
+  try {
+    await db.execute("ALTER TABLE routers ADD COLUMN serialNumber TEXT;");
   } catch (e) {
     // Column already exists or table is new
   }

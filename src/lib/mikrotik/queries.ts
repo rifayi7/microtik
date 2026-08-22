@@ -28,6 +28,7 @@ export interface ConnectionTestResult {
   version?: string;
   boardName?: string;
   uptime?: string;
+  serialNumber?: string;
   error?: string;
   testedAt: string;
 }
@@ -106,12 +107,17 @@ export async function testRouterConnection(
     const data = await withMikrotikClient(
       toConnectionParams(config),
       async (client) => {
-        const [identity, resource] = await Promise.all([
+        const [identity, resource, routerboard] = await Promise.all([
           mikrotikPrint(client, "/system/identity/print"),
           mikrotikPrint(client, "/system/resource/print"),
+          mikrotikPrint(client, "/system/routerboard/print"),
         ]);
 
-        return { identity: identity[0], resource: resource[0] };
+        return {
+          identity: identity[0],
+          resource: resource[0],
+          routerboard: routerboard[0],
+        };
       }
     );
 
@@ -121,6 +127,7 @@ export async function testRouterConnection(
       version: getRecordValue(data.resource, "version"),
       boardName: getRecordValue(data.resource, "board-name"),
       uptime: getRecordValue(data.resource, "uptime"),
+      serialNumber: getRecordValue(data.routerboard, "serial-number") || undefined,
       testedAt,
     };
   } catch (error) {
