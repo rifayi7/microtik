@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const routerId = body.routerId;
+    const routerId = body.routerId ?? body.router?.id;
 
     if (!routerId) {
       return NextResponse.json({ error: "routerId is required in the request body" }, { status: 400 });
