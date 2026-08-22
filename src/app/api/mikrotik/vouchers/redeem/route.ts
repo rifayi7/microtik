@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const config =
       parseRouterFromBody(body) ??
-      resolveRouterFromRequestSync(body, body.routerId as string | undefined);
+      await resolveRouterFromRequestSync(body, body.routerId as string | undefined);
 
     if (!config) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });

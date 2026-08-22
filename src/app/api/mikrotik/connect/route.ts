@@ -4,7 +4,8 @@ import {
   mikrotikErrorResponse,
 } from "@/lib/mikrotik/api-utils";
 import { getRouterConfigById, isMikrotikConfigured } from "@/lib/mikrotik/config";
-import { testRouterConnection } from "@/lib/mikrotik/queries";
+import { testRouterConnection, fetchHotspotUsersForRouter } from "@/lib/mikrotik/queries";
+import { getDB } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,126 @@ export async function POST(request: Request) {
     }
 
     const result = await testRouterConnection(config);
+
+    // If connection succeeds, run self-healing database check
+    if (result.success && config.id) {
+      try {
+        const database = await getDB();
+        const campName = config.camp ?? config.sessionName;
+
+        // 0. Re-insert router connection credentials if missing
+        await database.execute({
+          sql: `
+            INSERT OR IGNORE INTO routers (
+              id, sessionName, host, port, username, password, useTls, 
+              hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          args: [
+            config.id,
+            config.sessionName,
+            config.host,
+            config.port,
+            config.username,
+            config.password,
+            config.useTls ? 1 : 0,
+            config.hotspotName ?? config.sessionName,
+            config.dnsName ?? "",
+            config.currency ?? "AED",
+            campName,
+            config.sessionTimeout ?? "30 minutes",
+            config.phone ?? "",
+            config.liveReport !== false ? 1 : 0,
+          ],
+        });
+
+        // 1. Re-insert camp metadata if missing
+        await database.execute({
+          sql: "INSERT OR IGNORE INTO camps (name, hotspot_name) VALUES (?, ?)",
+          args: [campName, config.sessionName],
+        });
+
+        // 2. Re-insert camp validity pricing if missing
+        await database.batch([
+          {
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
+            args: [campName, "15-Days", 16, 1],
+          },
+          {
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
+            args: [campName, "30-Days", 32, 1],
+          },
+        ], "write");
+
+        // 3. Scan & sync vouchers from this router if count of active vouchers is 0
+        const checkCount = await database.execute({
+          sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
+          args: [config.id],
+        });
+        const currentCount = Number(checkCount.rows[0]?.count ?? 0);
+
+        if (currentCount === 0) {
+          const users = await fetchHotspotUsersForRouter(config);
+          if (users && users.length > 0) {
+            const statements = users.map((user) => {
+              const profile = user.profile;
+              const match = profile.match(/(\d+)\D*days?/i);
+              let validityDaysNum = 0;
+              if (match) {
+                validityDaysNum = Number(match[1]);
+              } else {
+                const numeric = Number(profile.replace(/[^0-9]/g, ""));
+                validityDaysNum = Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+              }
+
+              if (validityDaysNum <= 0) return null;
+
+              const isRedeemed = user.comment && user.comment.includes("Mobile:");
+              const status = isRedeemed ? "redeemed" : user.status === "disabled" ? "disabled" : "available";
+
+              let mobile = "";
+              let salesperson = "";
+              if (isRedeemed) {
+                const commentStr = user.comment || "";
+                const mobileMatch = commentStr.match(/Mobile:\s*([+a-zA-Z0-9\s-]+)/i);
+                if (mobileMatch) {
+                  mobile = mobileMatch[1].trim();
+                }
+                const sellerMatch = commentStr.match(/Sold by:\s*([a-zA-Z0-9_-]+)/i);
+                if (sellerMatch) {
+                  salesperson = sellerMatch[1].trim();
+                }
+              }
+
+              return {
+                sql: `
+                  INSERT OR REPLACE INTO vouchers (
+                    voucher_code, validity_days, status, router_id, used_by, used_at, sold_by, price_charged
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                args: [
+                  user.username,
+                  validityDaysNum,
+                  status,
+                  config.id,
+                  status === "redeemed" ? mobile : null,
+                  status === "redeemed" ? new Date().toISOString() : null,
+                  status === "redeemed" ? salesperson : null,
+                  status === "redeemed" ? (validityDaysNum === 30 ? 32 : 16) : null,
+                ],
+              };
+            }).filter((stmt) => stmt !== null);
+
+            if (statements.length > 0) {
+              await database.batch(statements as any, "write");
+              console.log(`Successfully self-healed and imported ${statements.length} vouchers from the physical router.`);
+            }
+          }
+        }
+      } catch (dbErr) {
+        console.warn("Self-healing check failed:", dbErr);
+      }
+    }
 
     return NextResponse.json({
       ...result,

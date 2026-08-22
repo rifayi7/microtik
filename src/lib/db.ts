@@ -34,6 +34,26 @@ export async function initializeDB() {
     );
   `);
 
+  // Create routers table to store configurations
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS routers (
+      id TEXT PRIMARY KEY,
+      sessionName TEXT NOT NULL,
+      host TEXT NOT NULL,
+      port INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      password TEXT,
+      useTls INTEGER NOT NULL DEFAULT 0,
+      hotspotName TEXT,
+      dnsName TEXT,
+      currency TEXT DEFAULT 'AED',
+      camp TEXT,
+      sessionTimeout TEXT DEFAULT '30 minutes',
+      phone TEXT,
+      liveReport INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+
   // Ensure sold_by column exists for existing databases
   try {
     await db.execute("ALTER TABLE vouchers ADD COLUMN sold_by TEXT;");
@@ -41,7 +61,8 @@ export async function initializeDB() {
     // Column already exists or table is new
   }
 
-  // Check if seeding is required for default router ID '1'
+  // Check if seeding is required for default router ID '1' (Disabled for clean database)
+  /*
   const checkResult = await db.execute({
     sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
     args: ['1'],
@@ -51,6 +72,7 @@ export async function initializeDB() {
   if (count === 0) {
     await seedVouchersForRouter('1');
   }
+  */
 
   // Automatically clean up expired voucher reservations
   try {

@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   createRouterId,
   loadActiveRouterId,
@@ -25,9 +26,9 @@ interface RouterContextValue {
   activeRouter: StoredRouter | null;
   isConnected: boolean;
   isReady: boolean;
-  addRouter: (router: Omit<StoredRouter, "id">) => StoredRouter;
-  updateRouter: (id: string, patch: Partial<StoredRouter>) => void;
-  removeRouter: (id: string) => void;
+  addRouter: (router: Omit<StoredRouter, "id">) => Promise<StoredRouter | undefined>;
+  updateRouter: (id: string, patch: Partial<StoredRouter>) => Promise<void>;
+  removeRouter: (id: string) => Promise<void>;
   connectRouter: (id: string) => Promise<boolean>;
   disconnectRouter: () => void;
   importEnvRouters: () => Promise<void>;
@@ -61,15 +62,36 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
   const [activeRouter, setActiveRouter] = useState<StoredRouter | null>(null);
   const [isReady, setIsReady] = useState(false);
 
+  // Load configuration from database API on mount (fallback to localStorage if offline)
   useEffect(() => {
-    const stored = loadRouters();
-    setRouters(stored);
-    const activeId = loadActiveRouterId();
-    if (activeId) {
-      const found = stored.find((item) => item.id === activeId) ?? null;
-      setActiveRouter(found);
+    async function loadFromDB() {
+      try {
+        const payload = await fetchMikrotikApi<{ routers: Record<string, unknown>[]; configured: boolean }>(
+          "/api/mikrotik/routers"
+        );
+        const mapped = (payload.routers || []).map(mapEnvRouter);
+        setRouters(mapped);
+        saveRouters(mapped); // Cache locally for offline availability
+
+        const activeId = loadActiveRouterId();
+        if (activeId) {
+          const found = mapped.find((item) => item.id === activeId) ?? null;
+          setActiveRouter(found);
+        }
+      } catch (err) {
+        console.warn("Failed to load routers from server database. Using offline cache.", err);
+        const stored = loadRouters();
+        setRouters(stored);
+        const activeId = loadActiveRouterId();
+        if (activeId) {
+          const found = stored.find((item) => item.id === activeId) ?? null;
+          setActiveRouter(found);
+        }
+      } finally {
+        setIsReady(true);
+      }
     }
-    setIsReady(true);
+    void loadFromDB();
   }, []);
 
   const persist = useCallback((next: StoredRouter[]) => {
@@ -100,44 +122,76 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
 
       persist(merged);
     } catch {
-      // Env not configured — user adds routers manually
+      // Env not configured
     }
   }, [persist]);
 
-  useEffect(() => {
-    if (isReady && routers.length === 0) {
-      void importEnvRouters();
-    }
-  }, [isReady, routers.length, importEnvRouters]);
-
   const addRouter = useCallback(
-    (input: Omit<StoredRouter, "id">) => {
-      const created: StoredRouter = { ...input, id: createRouterId(), status: "unknown" };
-      persist([...routers, created]);
-      return created;
+    async (input: Omit<StoredRouter, "id">) => {
+      try {
+        const payload = await fetchMikrotikApi<{ router: Record<string, unknown>; success: boolean; error?: string }>(
+          "/api/mikrotik/routers",
+          {
+            method: "POST",
+            body: JSON.stringify(input),
+          }
+        );
+
+        if (payload.success && payload.router) {
+          const created = mapEnvRouter(payload.router);
+          const next = [...routers, created];
+          persist(next);
+          return created;
+        } else {
+          throw new Error(payload.error ?? "Failed to save router");
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Network error";
+        toast.error("Failed to save router: " + errMsg);
+        throw err;
+      }
     },
     [routers, persist]
   );
 
   const updateRouter = useCallback(
-    (id: string, patch: Partial<StoredRouter>) => {
-      const next = routers.map((item) =>
-        item.id === id ? { ...item, ...patch } : item
-      );
-      persist(next);
-      if (activeRouter?.id === id) {
-        setActiveRouter({ ...activeRouter, ...patch });
+    async (id: string, patch: Partial<StoredRouter>) => {
+      try {
+        await fetchMikrotikApi(`/api/mikrotik/routers/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(patch),
+        });
+
+        const next = routers.map((item) =>
+          item.id === id ? { ...item, ...patch } : item
+        );
+        persist(next);
+        if (activeRouter?.id === id) {
+          setActiveRouter({ ...activeRouter, ...patch });
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Network error";
+        toast.error("Failed to update router: " + errMsg);
       }
     },
     [routers, activeRouter, persist]
   );
 
   const removeRouter = useCallback(
-    (id: string) => {
-      persist(routers.filter((item) => item.id !== id));
-      if (activeRouter?.id === id) {
-        setActiveRouter(null);
-        saveActiveRouterId(null);
+    async (id: string) => {
+      try {
+        await fetchMikrotikApi(`/api/mikrotik/routers/${id}`, {
+          method: "DELETE",
+        });
+
+        persist(routers.filter((item) => item.id !== id));
+        if (activeRouter?.id === id) {
+          setActiveRouter(null);
+          saveActiveRouterId(null);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Network error";
+        toast.error("Failed to delete router: " + errMsg);
       }
     },
     [routers, activeRouter, persist]
@@ -180,7 +234,7 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
     () => ({
       routers,
       activeRouter,
-      isConnected: !!activeRouter,
+      isConnected: activeRouter !== null,
       isReady,
       addRouter,
       updateRouter,
@@ -202,7 +256,11 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
     ]
   );
 
-  return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
+  return (
+    <RouterContext.Provider value={value}>
+      {children}
+    </RouterContext.Provider>
+  );
 }
 
 export function useRouterContext() {
