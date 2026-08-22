@@ -24,33 +24,32 @@ export async function POST(request: Request) {
 
     let config = routerId ? getRouterConfigById(routerId) : undefined;
 
-    if (!config) {
-      if (host && username) {
-        config = {
-          id: routerId ?? router.id ?? "custom",
-          sessionName: body.sessionName ?? router.sessionName ?? host,
-          host: host,
-          port: Number(body.port ?? router.port ?? 8728),
-          username: username,
-          password: body.password ?? router.password ?? "",
-          useTls: Boolean(body.useTls ?? router.useTls),
-          hotspotName: body.hotspotName ?? router.hotspotName,
-          dnsName: body.dnsName ?? router.dnsName,
-          currency: body.currency ?? router.currency,
-          camp: body.camp ?? router.camp,
-          sessionTimeout: body.sessionTimeout ?? router.sessionTimeout,
-          phone: body.phone ?? router.phone,
-          liveReport:
-            body.liveReport !== undefined
-              ? Boolean(body.liveReport)
-              : router.liveReport !== undefined
-              ? Boolean(router.liveReport)
-              : undefined,
-        };
-      }
+    // Build config from request body if not found in env
+    if (!config && host && username) {
+      config = {
+        id: routerId ?? router.id ?? "custom",
+        sessionName: body.sessionName ?? router.sessionName ?? host,
+        host,
+        port: Number(body.port ?? router.port ?? 8728),
+        username,
+        password: body.password ?? router.password ?? "",
+        useTls: Boolean(body.useTls ?? router.useTls),
+        hotspotName: body.hotspotName ?? router.hotspotName,
+        dnsName: body.dnsName ?? router.dnsName,
+        currency: body.currency ?? router.currency,
+        camp: body.camp ?? router.camp,
+        sessionTimeout: body.sessionTimeout ?? router.sessionTimeout,
+        phone: body.phone ?? router.phone,
+        liveReport:
+          body.liveReport !== undefined
+            ? Boolean(body.liveReport)
+            : router.liveReport !== undefined
+            ? Boolean(router.liveReport)
+            : undefined,
+      };
     }
 
-    // Also try DB if routerId was provided but not found in env
+    // Fall back to DB-stored config if still not found
     if (!config && routerId) {
       try {
         const database = await getDB();
@@ -92,13 +91,13 @@ export async function POST(request: Request) {
     const result = await testRouterConnection(config);
 
     if (result.success && config.id) {
-      // ── Run all DB housekeeping in the background (non-blocking) ──
+      // Run DB housekeeping in the background so the HTTP response is instant
       void (async () => {
         try {
           const database = await getDB();
           const campName = config!.camp ?? config!.sessionName;
 
-          // 1. Upsert router record
+          // 1. Upsert router record (keep credentials up to date)
           await database.execute({
             sql: `
               INSERT INTO routers (
@@ -106,20 +105,20 @@ export async function POST(request: Request) {
                 hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET
-                sessionName   = excluded.sessionName,
-                host          = excluded.host,
-                port          = excluded.port,
-                username      = excluded.username,
-                password      = excluded.password,
-                useTls        = excluded.useTls,
-                hotspotName   = excluded.hotspotName,
-                dnsName       = excluded.dnsName,
-                currency      = excluded.currency,
-                camp          = excluded.camp,
-                sessionTimeout= excluded.sessionTimeout,
-                phone         = excluded.phone,
-                liveReport    = excluded.liveReport,
-                serialNumber  = excluded.serialNumber
+                sessionName    = excluded.sessionName,
+                host           = excluded.host,
+                port           = excluded.port,
+                username       = excluded.username,
+                password       = excluded.password,
+                useTls         = excluded.useTls,
+                hotspotName    = excluded.hotspotName,
+                dnsName        = excluded.dnsName,
+                currency       = excluded.currency,
+                camp           = excluded.camp,
+                sessionTimeout = excluded.sessionTimeout,
+                phone          = excluded.phone,
+                liveReport     = excluded.liveReport,
+                serialNumber   = excluded.serialNumber
             `,
             args: [
               config!.id,
@@ -159,11 +158,21 @@ export async function POST(request: Request) {
             "write"
           );
 
-          // 3. Always sync live RouterOS users → DB (upsert + remove orphans)
-          const { synced, removed } = await syncRouterUsersToDb(config!);
-          console.log(
-            `[connect] DB sync complete for "${config!.sessionName}": ${synced} upserted, ${removed} removed.`
-          );
+          // 3. ONE-TIME SYNC: pull all RouterOS users into DB only the first time
+          //    this router/camp is added (when no vouchers exist for it yet).
+          //    After that the DB is not touched again unless manually triggered.
+          const check = await database.execute({
+            sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
+            args: [config!.id],
+          });
+          const existingCount = Number(check.rows[0]?.count ?? 0);
+
+          if (existingCount === 0) {
+            const { synced } = await syncRouterUsersToDb(config!);
+            console.log(
+              `[connect] First-time import for "${config!.sessionName}": ${synced} codes saved to DB from RouterOS.`
+            );
+          }
         } catch (dbErr) {
           console.warn("[connect] Background DB sync failed:", dbErr);
         }
@@ -184,4 +193,3 @@ export async function POST(request: Request) {
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204 });
 }
-
