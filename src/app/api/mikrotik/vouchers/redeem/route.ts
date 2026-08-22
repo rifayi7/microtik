@@ -105,10 +105,10 @@ export async function POST(request: Request) {
         await db.execute({
           sql: `
             UPDATE vouchers 
-            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'success', activation_error = NULL
+            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
             WHERE voucher_code = ?
           `,
-          args: [mobileNumber, salesperson || null, priceCharged, selectedVoucherCode]
+          args: [mobileNumber, salesperson || null, priceCharged, config.id, selectedVoucherCode]
         });
       } catch (mikrotikError) {
         const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
@@ -117,10 +117,10 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [mobileNumber, salesperson || null, priceCharged, errMsg, selectedVoucherCode]
+            args: [mobileNumber, salesperson || null, priceCharged, config.id, errMsg, selectedVoucherCode]
           });
         } catch (revertError) {
           console.error("Critical: Failed to log voucher activation failure", revertError);
