@@ -9,21 +9,23 @@ import { testRouterConnection } from "@/lib/mikrotik/queries";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  if (!isMikrotikConfigured()) {
-    return ensureMikrotikConfigured();
-  }
-
   try {
     const body = await request.json();
     const router = body.router || {};
-
     const routerId = (body.routerId ?? router.id) as string | undefined;
+
+    // Check if we have manual/custom connection info in the request body
+    const host = body.host ?? router.host;
+    const username = body.username ?? router.username;
+
+    // If .env.local has no routers AND the request does not provide a manual config:
+    if (!isMikrotikConfigured() && (!host || !username)) {
+      return ensureMikrotikConfigured();
+    }
 
     let config = routerId ? getRouterConfigById(routerId) : undefined;
 
     if (!config) {
-      const host = body.host ?? router.host;
-      const username = body.username ?? router.username;
 
       if (host && username) {
         config = {
