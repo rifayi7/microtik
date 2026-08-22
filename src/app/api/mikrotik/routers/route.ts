@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 export async function GET() {
   if (!isMikrotikConfigured()) {
-    return ensureMikrotikConfigured();
+    return NextResponse.json({ routers: [], configured: false });
   }
 
   try {
