@@ -59,6 +59,18 @@ export function HotspotUsersView() {
   const [profile, setProfile] = useState("default");
   const [comment, setComment] = useState("");
 
+  // Generate states
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [genQty, setGenQty] = useState("1");
+  const [genServer, setGenServer] = useState("all");
+  const [genUserMode, setGenUserMode] = useState("username_equals_password");
+  const [genNameLength, setGenNameLength] = useState("8");
+  const [genPrefix, setGenPrefix] = useState("");
+  const [genCharacters, setGenCharacters] = useState("abcd2345");
+  const [genProfile, setGenProfile] = useState("default");
+  const [genComment, setGenComment] = useState("");
+  const [generating, setGenerating] = useState(false);
+
   const loadProfiles = useCallback(async () => {
     if (!activeRouter) return;
     try {
@@ -104,6 +116,10 @@ export function HotspotUsersView() {
       toast.error("Username is required");
       return;
     }
+    if (username.trim().length !== 8) {
+      toast.error("Code must be exactly 8 characters long");
+      return;
+    }
     setSubmitting(true);
     try {
       await fetchForRouter("/api/mikrotik/users/add", activeRouter, {
@@ -126,6 +142,63 @@ export function HotspotUsersView() {
       toast.error(err instanceof Error ? err.message : "Failed to create user");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleGenerate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeRouter) {
+      toast.error("No active router connected");
+      return;
+    }
+    const qtyNum = Number(genQty);
+    const lenNum = Number(genNameLength);
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      toast.error("Quantity must be greater than 0");
+      return;
+    }
+    if (isNaN(lenNum) || lenNum <= 0) {
+      toast.error("Name length must be greater than 0");
+      return;
+    }
+    if (genPrefix.length >= lenNum) {
+      toast.error("Prefix length must be less than Name Length");
+      return;
+    }
+    if (!genCharacters) {
+      toast.error("Character pool cannot be empty");
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const response = await fetchForRouter<{ count: number }>(
+        "/api/mikrotik/users/generate",
+        activeRouter,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            qty: qtyNum,
+            server: genServer,
+            userMode: genUserMode,
+            nameLength: lenNum,
+            prefix: genPrefix,
+            characters: genCharacters,
+            profile: genProfile,
+            comment: genComment || undefined,
+          }),
+        }
+      );
+      toast.success(`Successfully generated ${response.count} unique codes`);
+      setGenerateOpen(false);
+      setGenQty("1");
+      setGenPrefix("");
+      setGenComment("");
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate codes");
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -171,7 +244,7 @@ export function HotspotUsersView() {
           <Button variant="outline" className="bg-white dark:bg-card" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Add
           </Button>
-          <Button variant="outline" className="bg-white dark:bg-card">Generate</Button>
+          <Button variant="outline" className="bg-white dark:bg-card" onClick={() => setGenerateOpen(true)}>Generate</Button>
           <Button variant="outline" className="bg-white dark:bg-card">Profile</Button>
           <Button variant="outline" className="bg-white dark:bg-card">Comment</Button>
         </div>
@@ -302,6 +375,127 @@ export function HotspotUsersView() {
               </Button>
               <Button type="submit" disabled={submitting}>
                 {submitting ? "Adding..." : "Add User"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generate Hotspot Users Dialog */}
+      <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleGenerate}>
+            <DialogHeader>
+              <DialogTitle>Generate Hotspot Users</DialogTitle>
+              <DialogDescription>
+                Batch generate unique voucher codes directly on the active MikroTik router.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="genQty">Qty</Label>
+                  <Input
+                    id="genQty"
+                    type="number"
+                    placeholder="1"
+                    value={genQty}
+                    onChange={(e) => setGenQty(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="genServer">Server</Label>
+                  <Input
+                    id="genServer"
+                    placeholder="all"
+                    value={genServer}
+                    onChange={(e) => setGenServer(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="genUserMode">User Mode</Label>
+                <Select value={genUserMode} onValueChange={(v) => v && setGenUserMode(v)}>
+                  <SelectTrigger id="genUserMode">
+                    <SelectValue placeholder="Select user mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="username_equals_password">Username = Password</SelectItem>
+                    <SelectItem value="username_only">Username only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="genNameLength">Name Length</Label>
+                  <Input
+                    id="genNameLength"
+                    type="number"
+                    placeholder="8"
+                    value={genNameLength}
+                    onChange={(e) => setGenNameLength(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="genPrefix">Prefix</Label>
+                  <Input
+                    id="genPrefix"
+                    placeholder="Optional prefix"
+                    value={genPrefix}
+                    onChange={(e) => setGenPrefix(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="genCharacters">Characters</Label>
+                <Input
+                  id="genCharacters"
+                  placeholder="abcd2345"
+                  value={genCharacters}
+                  onChange={(e) => setGenCharacters(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="genProfile">Profile</Label>
+                <Select value={genProfile} onValueChange={(v) => v && setGenProfile(v)}>
+                  <SelectTrigger id="genProfile">
+                    <SelectValue placeholder="Select user profile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="genComment">Comment</Label>
+                <Input
+                  id="genComment"
+                  placeholder="e.g. 30 days - 32 AED"
+                  value={genComment}
+                  onChange={(e) => setGenComment(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setGenerateOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={generating} className="bg-yellow-500 hover:bg-yellow-600 text-white border-0">
+                Generate
               </Button>
             </DialogFooter>
           </form>

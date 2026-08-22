@@ -482,4 +482,74 @@ export async function addHotspotUser(
   });
 }
 
+export async function generateHotspotUsers(
+  config: MikrotikRouterConfig,
+  params: {
+    qty: number;
+    server: string;
+    userMode: "username_equals_password" | "username_only";
+    nameLength: number;
+    prefix: string;
+    characters: string;
+    profile: string;
+    comment: string;
+  }
+): Promise<string[]> {
+  // 1. Fetch existing users to check for duplicates
+  const existingUsers = await fetchHotspotUsersForRouter(config);
+  const existingSet = new Set(existingUsers.map((u) => u.username.toLowerCase()));
+
+  // 2. Generate unique codes
+  const newCodes: string[] = [];
+  const charPool = params.characters || "abcd2345";
+  const prefix = params.prefix || "";
+  const lengthToGen = Math.max(1, params.nameLength - prefix.length);
+
+  for (let i = 0; i < params.qty; i++) {
+    let attempts = 0;
+    let code = "";
+    do {
+      code = prefix;
+      for (let j = 0; j < lengthToGen; j++) {
+        const randIndex = Math.floor(Math.random() * charPool.length);
+        code += charPool[randIndex];
+      }
+      attempts++;
+    } while (
+      (existingSet.has(code.toLowerCase()) || newCodes.includes(code)) &&
+      attempts < 1000
+    );
+
+    if (attempts >= 1000) {
+      throw new Error(
+        "Could not generate enough unique codes. Please increase character pool or name length."
+      );
+    }
+
+    newCodes.push(code);
+    // Keep set updated in real-time to avoid duplicate generation inside the loop
+    existingSet.add(code.toLowerCase());
+  }
+
+  // 3. Write all generated users to the router
+  await withMikrotikClient(toConnectionParams(config), async (client) => {
+    for (const code of newCodes) {
+      const queries = [
+        `=name=${code}`,
+        `=password=${params.userMode === "username_equals_password" ? code : ""}`,
+        `=profile=${params.profile || "default"}`,
+      ];
+      if (params.server && params.server !== "all") {
+        queries.push(`=server=${params.server}`);
+      }
+      if (params.comment) {
+        queries.push(`=comment=${params.comment}`);
+      }
+      await client.write("/ip/hotspot/user/add", queries);
+    }
+  });
+
+  return newCodes;
+}
+
 
