@@ -15,24 +15,21 @@ export async function POST(request: Request) {
     const router = body.router || {};
     const routerId = (body.routerId ?? router.id) as string | undefined;
 
+    // Check host/username from body or nested router object
     const host = body.host ?? router.host;
     const username = body.username ?? router.username;
 
-    if (!isMikrotikConfigured() && (!host || !username)) {
-      return ensureMikrotikConfigured();
-    }
-
     let config = routerId ? getRouterConfigById(routerId) : undefined;
 
-    // Build config from request body if not found in env
+    // 1. Build config from request body or nested router object if provided
     if (!config && host && username) {
       config = {
         id: routerId ?? router.id ?? "custom",
         sessionName: body.sessionName ?? router.sessionName ?? host,
-        host,
+        host: String(host),
         port: Number(body.port ?? router.port ?? 8728),
-        username,
-        password: body.password ?? router.password ?? "",
+        username: String(username),
+        password: String(body.password ?? router.password ?? ""),
         useTls: Boolean(body.useTls ?? router.useTls),
         hotspotName: body.hotspotName ?? router.hotspotName,
         dnsName: body.dnsName ?? router.dnsName,
@@ -49,7 +46,7 @@ export async function POST(request: Request) {
       };
     }
 
-    // Fall back to DB-stored config if still not found
+    // 2. Fall back to DB-stored config if routerId was provided
     if (!config && routerId) {
       try {
         const database = await getDB();
@@ -79,6 +76,11 @@ export async function POST(request: Request) {
       } catch {
         // DB not reachable — continue
       }
+    }
+
+    // 3. If still no router config and environment has no default router configured:
+    if (!config && !isMikrotikConfigured()) {
+      return ensureMikrotikConfigured();
     }
 
     if (!config) {
