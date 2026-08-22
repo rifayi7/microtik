@@ -559,4 +559,127 @@ export async function generateHotspotUsers(
   return newCodes;
 }
 
+/**
+ * Syncs live hotspot users from the router into the DB.
+ *
+ * Called on every successful connect so the DB always reflects what is on the router:
+ * - INSERT OR REPLACE all users that exist on the router (preserving redeemed status / metadata
+ *   for codes already in the DB that have been sold).
+ * - DELETE rows whose codes no longer exist on the router (deleted from RouterOS).
+ *
+ * Returns the number of rows synced.
+ */
+export async function syncRouterUsersToDb(
+  config: MikrotikRouterConfig
+): Promise<{ synced: number; removed: number }> {
+  const { getDB } = await import("@/lib/db");
 
+  const liveUsers = await fetchHotspotUsersForRouter(config);
+
+  if (liveUsers.length === 0) {
+    return { synced: 0, removed: 0 };
+  }
+
+  const db = await getDB();
+  const liveCodes = new Set(liveUsers.map((u) => u.username));
+
+  // Build upsert statements — preserve existing redeemed/sold metadata when present
+  const upsertStatements = liveUsers
+    .map((user) => {
+      const profile = user.profile;
+      const match = profile.match(/(\d+)\D*days?/i);
+      let validityDays = 0;
+      if (match) {
+        validityDays = Number(match[1]);
+      } else {
+        const numeric = Number(profile.replace(/[^0-9]/g, ""));
+        validityDays = Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+      }
+
+      // Skip users with unparseable profiles (e.g. "default", "trial")
+      if (validityDays <= 0) return null;
+
+      const commentStr = user.comment ?? "";
+      const isRedeemed =
+        commentStr.includes("Mobile:") || commentStr.includes("Mobile :");
+      const routerStatus =
+        user.status === "disabled" ? "disabled" : "active";
+
+      let mobile = "";
+      let salesperson = "";
+      if (isRedeemed) {
+        const mobileMatch = commentStr.match(/Mobile\s*:\s*([+\w\s-]+)/i);
+        if (mobileMatch) mobile = mobileMatch[1].trim();
+        const sellerMatch = commentStr.match(/Sold\s*by\s*:\s*([\w-]+)/i);
+        if (sellerMatch) salesperson = sellerMatch[1].trim();
+      }
+
+      return {
+        sql: `
+          INSERT INTO vouchers (
+            voucher_code, validity_days, status, router_id,
+            used_by, sold_by, activation_status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(voucher_code) DO UPDATE SET
+            validity_days   = excluded.validity_days,
+            router_id       = excluded.router_id,
+            -- Only update status if the DB row is 'available' or 'disabled'.
+            -- Keep 'redeemed' / 'reserved' rows intact so sales history is preserved.
+            status          = CASE
+              WHEN vouchers.status IN ('redeemed', 'reserved') THEN vouchers.status
+              ELSE excluded.status
+            END,
+            used_by         = CASE
+              WHEN vouchers.status = 'redeemed' THEN vouchers.used_by
+              ELSE excluded.used_by
+            END,
+            sold_by         = CASE
+              WHEN vouchers.status = 'redeemed' THEN vouchers.sold_by
+              ELSE excluded.sold_by
+            END
+        `,
+        args: [
+          user.username,
+          validityDays,
+          isRedeemed ? "redeemed" : routerStatus === "disabled" ? "disabled" : "available",
+          config.id,
+          isRedeemed ? mobile || null : null,
+          isRedeemed ? salesperson || null : null,
+          "pending",
+        ],
+      };
+    })
+    .filter((s) => s !== null) as { sql: string; args: unknown[] }[];
+
+  if (upsertStatements.length > 0) {
+    await db.batch(upsertStatements, "write");
+  }
+
+  // Remove DB rows that no longer exist on the router
+  // (only touch 'available' / 'disabled' rows — keep redeemed history)
+  const dbResult = await db.execute({
+    sql: "SELECT voucher_code FROM vouchers WHERE router_id = ? AND status IN ('available', 'disabled')",
+    args: [config.id],
+  });
+
+  const orphans = dbResult.rows
+    .map((r) => String(r.voucher_code))
+    .filter((code) => !liveCodes.has(code));
+
+  if (orphans.length > 0) {
+    // Delete in chunks of 50 to stay within SQL parameter limits
+    for (let i = 0; i < orphans.length; i += 50) {
+      const chunk = orphans.slice(i, i + 50);
+      const placeholders = chunk.map(() => "?").join(", ");
+      await db.execute({
+        sql: `DELETE FROM vouchers WHERE router_id = ? AND voucher_code IN (${placeholders}) AND status IN ('available', 'disabled')`,
+        args: [config.id, ...chunk],
+      });
+    }
+  }
+
+  console.log(
+    `[sync] router=${config.sessionName} synced=${upsertStatements.length} removed=${orphans.length}`
+  );
+  return { synced: upsertStatements.length, removed: orphans.length };
+}
