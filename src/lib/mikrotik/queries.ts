@@ -456,4 +456,30 @@ export async function updateOrCreateHotspotUser(
   });
 }
 
+export async function addHotspotUser(
+  config: MikrotikRouterConfig,
+  user: {
+    username: string;
+    password?: string;
+    profile?: string;
+    limitUptime?: string;
+    comment?: string;
+  }
+): Promise<void> {
+  await withMikrotikClient(toConnectionParams(config), async (client) => {
+    const queries = [
+      `=name=${user.username}`,
+      `=password=${user.password ?? ""}`,
+      `=profile=${user.profile ?? "default"}`,
+    ];
+    if (user.limitUptime) {
+      queries.push(`=limit-uptime=${user.limitUptime}`);
+    }
+    if (user.comment) {
+      queries.push(`=comment=${user.comment}`);
+    }
+    await client.write("/ip/hotspot/user/add", queries);
+  });
+}
+
 

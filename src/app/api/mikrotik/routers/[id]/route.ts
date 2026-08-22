@@ -44,7 +44,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
 export async function PUT(request: Request, { params }: RouteParams) {
   if (!isMikrotikConfigured()) {
-    return ensureMikrotikConfigured();
+    return NextResponse.json({
+      configured: false,
+      message: "MikroTik is not configured in .env.local. Changes saved to browser only.",
+    });
   }
 
   try {

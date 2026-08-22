@@ -8,12 +8,29 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useRouterContext } from "@/contexts/router-context";
 import { fetchForRouter } from "@/lib/api/client";
 import type { HotspotUser } from "@/lib/types";
 import { HotspotTabs } from "@/components/hotspot/hotspot-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -32,6 +49,33 @@ export function HotspotUsersView() {
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
+  const [profiles, setProfiles] = useState<{ name: string }[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Form states
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [profile, setProfile] = useState("default");
+  const [comment, setComment] = useState("");
+
+  const loadProfiles = useCallback(async () => {
+    if (!activeRouter) return;
+    try {
+      const payload = await fetchForRouter<{ profiles: { name: string }[] }>(
+        "/api/mikrotik/profiles",
+        activeRouter
+      );
+      setProfiles(payload.profiles);
+    } catch {
+      setProfiles([{ name: "default" }]);
+    }
+  }, [activeRouter]);
+
+  useEffect(() => {
+    void loadProfiles();
+  }, [loadProfiles]);
+
   const load = useCallback(async () => {
     if (!activeRouter) return;
     setLoading(true);
@@ -49,6 +93,41 @@ export function HotspotUsersView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeRouter) {
+      toast.error("No active router connected");
+      return;
+    }
+    if (!username.trim()) {
+      toast.error("Username is required");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await fetchForRouter("/api/mikrotik/users/add", activeRouter, {
+        method: "POST",
+        body: JSON.stringify({
+          username: username.trim(),
+          password: password || undefined,
+          profile,
+          comment: comment || undefined,
+        }),
+      });
+      toast.success(`User "${username}" created successfully`);
+      setUsername("");
+      setPassword("");
+      setProfile("default");
+      setComment("");
+      setAddOpen(false);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create user");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     return users.filter(
@@ -89,7 +168,7 @@ export function HotspotUsersView() {
           <Filter className="size-4" />
         </Button>
         <div className="ml-auto flex flex-wrap gap-2">
-          <Button variant="outline" className="bg-white dark:bg-card">
+          <Button variant="outline" className="bg-white dark:bg-card" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Add
           </Button>
           <Button variant="outline" className="bg-white dark:bg-card">Generate</Button>
@@ -157,6 +236,77 @@ export function HotspotUsersView() {
         })}
         {totalPages > 8 && <span className="text-muted-foreground">… {totalPages}</span>}
       </div>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleAddUser}>
+            <DialogHeader>
+              <DialogTitle>Add Hotspot User</DialogTitle>
+              <DialogDescription>
+                Create a new login voucher/code directly on the active MikroTik router.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="username">Voucher Code / Username</Label>
+                <Input
+                  id="username"
+                  placeholder="e.g. 529813"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="password">Password (optional)</Label>
+                <Input
+                  id="password"
+                  placeholder="Leave empty for code-only login"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="profile">Profile</Label>
+                <Select value={profile} onValueChange={(v) => v && setProfile(v)}>
+                  <SelectTrigger id="profile">
+                    <SelectValue placeholder="Select user profile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="comment">Comment (optional)</Label>
+                <Input
+                  id="comment"
+                  placeholder="e.g. 30 days - 32 AED"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? "Adding..." : "Add User"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
