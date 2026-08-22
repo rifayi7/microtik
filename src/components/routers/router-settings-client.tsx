@@ -49,6 +49,7 @@ import {
 import { ConnectDialog } from "@/components/routers/connect-dialog";
 import { fetchMikrotikApi } from "@/lib/api/client";
 import { MikrotikSetupAlert } from "@/components/shared/mikrotik-setup-alert";
+import { useRouterContext } from "@/contexts/router-context";
 import { ROUTER_HELP } from "@/lib/constants";
 import type { Router } from "@/lib/types";
 
@@ -78,6 +79,7 @@ function FieldLabel({ label, help }: { label: string; help?: string }) {
 
 export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
   const routerNav = useRouter();
+  const { routers, updateRouter, removeRouter } = useRouterContext();
   const [data, setData] = useState<Router | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,10 +89,47 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const localRouter = routers.find((r) => r.id === routerId);
+  const isEnvRouter = !localRouter || localRouter.id === "1";
+
   const loadRouter = useCallback(async () => {
     setLoading(true);
     setError(null);
 
+    // 1. Check if the router exists in local storage context first
+    if (localRouter) {
+      setData({
+        id: localRouter.id,
+        sessionName: localRouter.sessionName,
+        hotspotName: localRouter.hotspotName ?? localRouter.sessionName,
+        ipAddress: localRouter.host,
+        username: localRouter.username,
+        password: localRouter.password ?? "",
+        dnsName: localRouter.dnsName ?? "",
+        currency: localRouter.currency ?? "AED",
+        sessionTimeout: localRouter.sessionTimeout ?? "30 minutes",
+        liveReport: localRouter.liveReport ?? true,
+        phone: localRouter.phone ?? "",
+        camp: localRouter.camp,
+        status: localRouter.status ?? "unknown",
+        activeUsers: 0,
+      });
+      setConfigured(true);
+      setLoading(false);
+
+      // Attempt background fetch to verify status/fetch live metrics
+      try {
+        const payload = await fetchMikrotikApi<{ router: Router }>(
+          `/api/mikrotik/routers/${routerId}`
+        );
+        setData(payload.router);
+      } catch {
+        // Safe to ignore if background status fetch fails (e.g. manually added local router)
+      }
+      return;
+    }
+
+    // 2. Fallback to API for environment-configured routers
     try {
       const payload = await fetchMikrotikApi<{ router: Router }>(
         `/api/mikrotik/routers/${routerId}`
@@ -105,7 +144,7 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
     } finally {
       setLoading(false);
     }
-  }, [routerId]);
+  }, [routerId, localRouter]);
 
   useEffect(() => {
     void loadRouter();
@@ -120,11 +159,29 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
     setSaving(true);
 
     try {
-      await fetchMikrotikApi(`/api/mikrotik/routers/${routerId}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
+      // 1. Update in local storage context
+      updateRouter(routerId, {
+        sessionName: data.sessionName,
+        hotspotName: data.hotspotName,
+        dnsName: data.dnsName,
+        currency: data.currency,
+        sessionTimeout: data.sessionTimeout,
+        phone: data.phone,
+        liveReport: data.liveReport,
+        host: data.ipAddress,
+        username: data.username,
+        password: data.password,
+        camp: data.camp,
       });
-      toast.success("Router settings saved locally");
+
+      // 2. Also try updating via API if it is an env-configured router (like id "1")
+      if (isEnvRouter) {
+        await fetchMikrotikApi(`/api/mikrotik/routers/${routerId}`, {
+          method: "PUT",
+          body: JSON.stringify(data),
+        });
+      }
+      toast.success("Router settings saved successfully");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -364,19 +421,30 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove router?</AlertDialogTitle>
             <AlertDialogDescription>
-              Edit <code className="font-mono">.env.local</code> to remove this router&apos;s
-              credentials from the app.
+              {isEnvRouter ? (
+                <>
+                  Edit <code className="font-mono">.env.local</code> to remove this router&apos;s
+                  credentials from the app.
+                </>
+              ) : (
+                <>Are you sure you want to remove &quot;{data?.sessionName}&quot; from your saved routers?</>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                toast.info("Update .env.local to remove this router");
+                if (isEnvRouter) {
+                  toast.info("Update .env.local to remove this router");
+                } else {
+                  removeRouter(routerId);
+                  toast.success("Router removed successfully");
+                }
                 routerNav.push("/routers");
               }}
             >
-              Got it
+              {isEnvRouter ? "Got it" : "Remove"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
