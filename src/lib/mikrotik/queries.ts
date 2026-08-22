@@ -649,7 +649,7 @@ export async function syncRouterUsersToDb(
         ],
       };
     })
-    .filter((s) => s !== null) as { sql: string; args: unknown[] }[];
+    .filter((s) => s !== null) as { sql: string; args: (string | number | null)[] }[];
 
   if (upsertStatements.length > 0) {
     await db.batch(upsertStatements, "write");
