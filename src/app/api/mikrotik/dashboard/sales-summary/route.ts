@@ -48,18 +48,17 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. Get sales counts and total revenue per verified router/camp
+    // 2. Get sales counts and total revenue per router/camp
     const salesResult = await database.execute(`
       SELECT 
-        r.camp as campName,
+        COALESCE(r.camp, r.sessionName, 'Camp') as campName,
         r.sessionName as hotspotName,
         r.id as routerId,
-        SUM(CASE WHEN date(v.used_at) = date('now', 'localtime') THEN 1 ELSE 0 END) as todaySale,
-        SUM(CASE WHEN strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySale,
+        SUM(CASE WHEN date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime') THEN 1 ELSE 0 END) as todaySale,
+        SUM(CASE WHEN strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySale,
         SUM(COALESCE(v.price_charged, 0)) as totalRevenue
       FROM routers r
       LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed'
-      WHERE r.verified_status = 1 OR r.verified_status IS NULL
       GROUP BY r.id
     `);
 
@@ -80,27 +79,7 @@ export async function GET(request: Request) {
       grandTotalPaid += amt;
     });
 
-    // 4. Fetch last 5 collections
-    let lastCollections: any[] = [];
-    try {
-      const collectionsResult = await database.execute(`
-        SELECT amount, payment_date, payment_time, camp_name, paid_by_user
-        FROM payments
-        ORDER BY id DESC
-        LIMIT 5
-      `);
-      lastCollections = collectionsResult.rows.map((row) => ({
-        amount: Number(row.amount || 0),
-        date: String(row.payment_date || ""),
-        time: String(row.payment_time || ""),
-        campName: String(row.camp_name || ""),
-        paidBy: String(row.paid_by_user || ""),
-      }));
-    } catch {
-      // Ignore if payments table is empty
-    }
-
-    // 5. Merge camp data & calculate overall totals
+    // 4. Merge camp data & calculate overall totals
     let grandTotalRevenue = 0;
     let grandTodaySalesCount = 0;
     let grandTodayRevenue = 0;
@@ -138,7 +117,6 @@ export async function GET(request: Request) {
       success: true,
       userStats,
       overallStats,
-      lastCollections,
       data: summary,
     });
   } catch (error) {
