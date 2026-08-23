@@ -20,6 +20,7 @@ import {
   type StoredRouter,
 } from "@/lib/router-store";
 import { fetchMikrotikApi } from "@/lib/api/client";
+import type { ConnectionStatus } from "@/lib/types";
 
 interface RouterContextValue {
   routers: StoredRouter[];
@@ -52,7 +53,8 @@ function mapEnvRouter(raw: Record<string, unknown>): StoredRouter {
     liveReport: Boolean(raw.liveReport ?? true),
     phone: String(raw.phone ?? ""),
     camp: raw.camp ? String(raw.camp) : undefined,
-    status: "unknown",
+    status: (raw.status as ConnectionStatus) ?? "unknown",
+    verified: Boolean(raw.verified ?? (Number(raw.verified_status) === 1)),
   };
 }
 

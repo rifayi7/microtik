@@ -69,6 +69,13 @@ export async function initializeDB() {
     // Column already exists or table is new
   }
 
+  // Ensure verified_status column exists in routers table (1 = verified/active, 0 = pending/unverified)
+  try {
+    await db.execute("ALTER TABLE routers ADD COLUMN verified_status INTEGER DEFAULT 0;");
+  } catch (e) {
+    // Column already exists or table is new
+  }
+
   // Check if seeding is required for default router ID '1' (Disabled for clean database)
   /*
   const checkResult = await db.execute({

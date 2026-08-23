@@ -163,86 +163,226 @@ export function RouterListClient() {
               ? "Add MikroTik credentials to .env.local and restart the dev server."
               : search || statusFilter !== "all"
                 ? "Try adjusting your search or filters."
-                : "No routers are defined in MIKROTIK_HOST or MIKROTIK_ROUTERS."
+                : "No routers configured in database or environment."
           }
         />
       ) : (
-        <div className="rounded-xl border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">#</TableHead>
-                <TableHead>Session Name</TableHead>
-                <TableHead>Hotspot Name</TableHead>
-                <TableHead>Host</TableHead>
-                <TableHead>Camp</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Users</TableHead>
-                <TableHead className="w-12" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((item, index) => (
-                <TableRow key={item.id}>
-                  <TableCell className="text-muted-foreground">{index + 1}</TableCell>
-                  <TableCell>
-                    <Link
-                      href={`/routers/${item.id}`}
-                      className="inline-flex items-center gap-2 font-medium hover:text-primary"
-                    >
-                      <Tag className="size-3.5 text-muted-foreground" />
-                      {item.sessionName}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-2 text-muted-foreground">
-                      <Wifi className="size-3.5" />
-                      {item.hotspotName}
-                    </span>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{item.ipAddress}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {item.camp ?? "—"}
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={item.status} />
-                  </TableCell>
-                  <TableCell className="text-right">{item.activeUsers}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button variant="ghost" size="icon-xs">
-                            <MoreHorizontal className="size-4" />
-                          </Button>
-                        }
-                      />
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => router.push(`/routers/${item.id}`)}
-                        >
-                          <Settings className="size-4" />
-                          Edit settings
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setConnectTarget(item)}>
-                          <PlugZap className="size-4" />
-                          Test connection
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => setDeleteTarget(item)}
-                        >
-                          <Trash2 className="size-4" />
-                          Remove from env
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <div className="space-y-8">
+          {/* 1. Verified & Active Camps Section */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold tracking-tight text-foreground flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"></span>
+                  Verified & Active Camps
+                  <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600">
+                    {filtered.filter((r) => r.verified !== false).length}
+                  </span>
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Camps with successful connection history, active inventory, and visible in Mobile App.
+                </p>
+              </div>
+            </div>
+
+            {filtered.filter((r) => r.verified !== false).length === 0 ? (
+              <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No active verified camps yet. Connect to a router below to activate it.
+              </div>
+            ) : (
+              <div className="rounded-xl border bg-card overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Camp / Session</TableHead>
+                      <TableHead>Hotspot Name</TableHead>
+                      <TableHead>Host (IP / Port)</TableHead>
+                      <TableHead>Camp Name</TableHead>
+                      <TableHead>Live Status</TableHead>
+                      <TableHead className="text-right">Users</TableHead>
+                      <TableHead className="w-12" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered
+                      .filter((r) => r.verified !== false)
+                      .map((item, index) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/routers/${item.id}`}
+                              className="inline-flex items-center gap-2 font-medium hover:text-primary"
+                            >
+                              <Tag className="size-3.5 text-muted-foreground" />
+                              {item.sessionName}
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-2 text-muted-foreground">
+                              <Wifi className="size-3.5" />
+                              {item.hotspotName}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{item.ipAddress}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {item.camp ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={item.status} />
+                          </TableCell>
+                          <TableCell className="text-right font-medium">{item.activeUsers}</TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                render={
+                                  <Button variant="ghost" size="icon-xs">
+                                    <MoreHorizontal className="size-4" />
+                                  </Button>
+                                }
+                              />
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => router.push(`/routers/${item.id}`)}
+                                >
+                                  <Settings className="size-4" />
+                                  Edit settings
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setConnectTarget(item)}>
+                                  <PlugZap className="size-4" />
+                                  Test connection
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() => setDeleteTarget(item)}
+                                >
+                                  <Trash2 className="size-4" />
+                                  Delete router
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+
+          {/* 2. Pending / Unverified Routers Section */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold tracking-tight text-foreground flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20"></span>
+                  Pending / Unverified Routers (Drafts)
+                  <span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-600">
+                    {filtered.filter((r) => r.verified === false).length}
+                  </span>
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Newly added or offline routers awaiting a successful live connection. Hidden from mobile app until verified.
+                </p>
+              </div>
+            </div>
+
+            {filtered.filter((r) => r.verified === false).length === 0 ? (
+              <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No pending routers. All added routers are verified and active.
+              </div>
+            ) : (
+              <div className="rounded-xl border bg-card/60 overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Session Name</TableHead>
+                      <TableHead>Hotspot Name</TableHead>
+                      <TableHead>Host (IP / Port)</TableHead>
+                      <TableHead>Camp Name</TableHead>
+                      <TableHead>Verification</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead className="w-12" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered
+                      .filter((r) => r.verified === false)
+                      .map((item, index) => (
+                        <TableRow key={item.id} className="bg-amber-500/[0.02]">
+                          <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/routers/${item.id}`}
+                              className="inline-flex items-center gap-2 font-medium hover:text-primary"
+                            >
+                              <Tag className="size-3.5 text-muted-foreground" />
+                              {item.sessionName}
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-2 text-muted-foreground">
+                              <Wifi className="size-3.5" />
+                              {item.hotspotName}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{item.ipAddress}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {item.camp ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-600 ring-1 ring-inset ring-amber-500/20">
+                              Pending Connect
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              className="border-amber-500/30 text-amber-600 hover:bg-amber-50"
+                              onClick={() => setConnectTarget(item)}
+                            >
+                              <PlugZap className="mr-1 size-3.5" />
+                              Verify Now
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                render={
+                                  <Button variant="ghost" size="icon-xs">
+                                    <MoreHorizontal className="size-4" />
+                                  </Button>
+                                }
+                              />
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => router.push(`/routers/${item.id}`)}
+                                >
+                                  <Settings className="size-4" />
+                                  Edit credentials
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() => setDeleteTarget(item)}
+                                >
+                                  <Trash2 className="size-4" />
+                                  Delete router
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

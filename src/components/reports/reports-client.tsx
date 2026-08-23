@@ -1,9 +1,11 @@
 "use client";
 
-import { BarChart3, TrendingUp, Users, Wifi, ShoppingCart, UserCheck, Clock, Layers } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { BarChart3, TrendingUp, Users, Wifi, ShoppingCart, UserCheck, Clock, Layers, RefreshCw } from "lucide-react";
 import { PageHeader, StatCard } from "@/components/shared/page-header";
 import { TableSkeleton } from "@/components/shared/table-skeleton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -12,9 +14,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useMikrotikApi } from "@/lib/api/client";
-import { MikrotikSetupAlert } from "@/components/shared/mikrotik-setup-alert";
-import type { DashboardStats, Router } from "@/lib/types";
+import { useRouterContext } from "@/contexts/router-context";
+import { fetchForRouter, fetchMikrotikApi } from "@/lib/api/client";
+import type { ConnectedDashboardData } from "@/lib/types";
 
 interface SalesReportData {
   summary: {
@@ -32,27 +34,46 @@ interface SalesReportData {
 }
 
 export function ReportsClient() {
-  const dashboard = useMikrotikApi<{ stats: DashboardStats }>(
-    "/api/mikrotik/dashboard",
-    (payload) => ({ stats: payload.stats as DashboardStats })
-  );
-  
-  const routers = useMikrotikApi<Router[]>(
-    "/api/mikrotik/routers",
-    (payload) => (payload.routers as Router[]) ?? []
-  );
+  const { activeRouter, routers } = useRouterContext();
+  const [salesReport, setSalesReport] = useState<SalesReportData | null>(null);
+  const [dashboardData, setDashboardData] = useState<ConnectedDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const salesReport = useMikrotikApi<SalesReportData>(
-    "/api/mikrotik/reports",
-    (payload) => ({
-      summary: (payload.summary || { totalSold: 0, salesByUser: [] }) as any,
-      sales: (payload.sales || []) as any,
-    })
-  );
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // 1. Load sales report from database
+      const reportRes = await fetchMikrotikApi<SalesReportData>("/api/mikrotik/reports");
+      setSalesReport(reportRes);
 
-  const loading = dashboard.loading || routers.loading || salesReport.loading;
-  
-  if (loading) {
+      // 2. If active router connected, load live dashboard metrics
+      if (activeRouter) {
+        try {
+          const dashRes = await fetchForRouter<{ dashboard: ConnectedDashboardData }>(
+            "/api/mikrotik/dashboard",
+            activeRouter
+          );
+          if (dashRes && dashRes.dashboard) {
+            setDashboardData(dashRes.dashboard);
+          }
+        } catch (dashErr) {
+          console.warn("Could not fetch live dashboard for active router:", dashErr);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load reports");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeRouter]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  if (loading && !salesReport) {
     return (
       <div className="space-y-6">
         <PageHeader title="Sales & Network Reports" description="Loading metrics..." />
@@ -61,26 +82,32 @@ export function ReportsClient() {
     );
   }
 
-  const stats = dashboard.data?.stats;
-  const salesSummary = salesReport.data?.summary;
-  const salesHistory = salesReport.data?.sales ?? [];
+  const salesSummary = salesReport?.summary;
+  const salesHistory = salesReport?.sales ?? [];
 
-  // Get sales by user
-  const salesByFasil = salesSummary?.salesByUser.find(u => u.name.toLowerCase().includes("fasil"))?.count ?? 0;
-  const salesByRifai = salesSummary?.salesByUser.find(u => u.name.toLowerCase().includes("rifai"))?.count ?? 0;
-  const otherSales = (salesSummary?.totalSold ?? 0) - salesByFasil - salesByRifai;
+  // Dynamic user sales breakdown
+  const salesByUser = salesSummary?.salesByUser ?? [];
+  const topAgents = salesByUser.slice(0, 3);
+  const totalSold = salesSummary?.totalSold ?? 0;
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Reports & Analytics"
-        description="Comprehensive sales reports and router network performance."
-      />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <PageHeader
+          title="Reports & Analytics"
+          description="Comprehensive sales reports and router network performance."
+        />
+        <Button variant="outline" size="sm" onClick={() => void loadData()} disabled={loading}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
 
-      <MikrotikSetupAlert
-        error={dashboard.error ?? routers.error ?? salesReport.error}
-        configured={dashboard.configured && routers.configured}
-      />
+      {error && (
+        <div className="rounded-md bg-destructive/15 p-4 text-sm text-destructive">
+          {error}
+        </div>
+      )}
 
       {/* Sales Summary Cards */}
       <div className="space-y-4">
@@ -88,29 +115,21 @@ export function ReportsClient() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard 
             title="Total Vouchers Sold" 
-            value={salesSummary?.totalSold ?? 0} 
+            value={totalSold} 
             icon={ShoppingCart} 
           />
-          <StatCard 
-            title="Sales (Fasil@2020)" 
-            value={salesByFasil} 
-            icon={UserCheck} 
-          />
-          <StatCard 
-            title="Sales (Rifai)" 
-            value={salesByRifai} 
-            icon={UserCheck} 
-          />
-          {otherSales > 0 ? (
-            <StatCard 
-              title="Other Sales" 
-              value={otherSales} 
-              icon={Users} 
+          {topAgents.map((agent, idx) => (
+            <StatCard
+              key={agent.name + idx}
+              title={`Sales (${agent.name})`}
+              value={agent.count}
+              icon={UserCheck}
             />
-          ) : (
+          ))}
+          {topAgents.length === 0 && (
             <StatCard 
-              title="Active Routers" 
-              value={`${stats?.onlineRouters ?? 0}/${stats?.totalRouters ?? 0}`} 
+              title="Configured Routers" 
+              value={routers.length} 
               icon={BarChart3} 
             />
           )}
@@ -118,13 +137,15 @@ export function ReportsClient() {
       </div>
 
       {/* Network Stats Cards (only show if router is connected) */}
-      {stats && (
+      {dashboardData && (
         <div className="space-y-4 pt-2">
-          <h2 className="text-xl font-bold tracking-tight text-muted-foreground">Network Summary</h2>
+          <h2 className="text-xl font-bold tracking-tight text-muted-foreground">
+            Live Network Summary ({activeRouter?.sessionName})
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <StatCard title="Active Hotspot Sessions" value={stats.activeSessions} icon={Wifi} />
-            <StatCard title="Total Registered Users" value={stats.totalUsers} icon={Users} />
-            <StatCard title="Total Data Usage" value={stats.dataTransferred} icon={TrendingUp} />
+            <StatCard title="Active Hotspot Sessions" value={dashboardData.activeSessions} icon={Wifi} />
+            <StatCard title="Total Registered Users" value={dashboardData.totalUsers} icon={Users} />
+            <StatCard title="Total Memory Used" value={dashboardData.resource?.memoryUsed ?? "—"} icon={TrendingUp} />
           </div>
         </div>
       )}
@@ -199,24 +220,24 @@ export function ReportsClient() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {(routers.data ?? []).length === 0 ? (
+            {routers.length === 0 ? (
               <p className="text-sm text-muted-foreground">No routers configured</p>
             ) : (
-              (routers.data ?? []).map((router) => (
+              routers.map((router) => (
                 <div
                   key={router.id}
                   className="flex items-center justify-between rounded-lg border p-3 text-sm"
                 >
                   <div className="flex flex-col">
                     <span className="font-semibold">{router.sessionName}</span>
-                    <span className="text-xs text-muted-foreground font-mono">{router.ipAddress}</span>
+                    <span className="text-xs text-muted-foreground font-mono">{router.host}</span>
                   </div>
                   <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
                     router.status === "online" 
                       ? "bg-green-500/10 text-green-500 ring-1 ring-inset ring-green-500/20" 
-                      : "bg-red-500/10 text-red-500 ring-1 ring-inset ring-red-500/20"
+                      : "bg-zinc-500/10 text-zinc-500 ring-1 ring-inset ring-zinc-500/20"
                   }`}>
-                    {router.status}
+                    {router.status ?? "configured"}
                   </span>
                 </div>
               ))

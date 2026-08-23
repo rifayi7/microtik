@@ -99,28 +99,29 @@ export async function POST(request: Request) {
           const database = await getDB();
           const campName = config!.camp ?? config!.sessionName;
 
-          // 1. Upsert router record (keep credentials up to date)
+          // 1. Upsert router record (mark verified_status = 1 on successful connect)
           await database.execute({
             sql: `
               INSERT INTO routers (
                 id, sessionName, host, port, username, password, useTls,
-                hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber, verified_status
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
               ON CONFLICT(id) DO UPDATE SET
-                sessionName    = excluded.sessionName,
-                host           = excluded.host,
-                port           = excluded.port,
-                username       = excluded.username,
-                password       = excluded.password,
-                useTls         = excluded.useTls,
-                hotspotName    = excluded.hotspotName,
-                dnsName        = excluded.dnsName,
-                currency       = excluded.currency,
-                camp           = excluded.camp,
-                sessionTimeout = excluded.sessionTimeout,
-                phone          = excluded.phone,
-                liveReport     = excluded.liveReport,
-                serialNumber   = excluded.serialNumber
+                sessionName     = excluded.sessionName,
+                host            = excluded.host,
+                port            = excluded.port,
+                username        = excluded.username,
+                password        = excluded.password,
+                useTls          = excluded.useTls,
+                hotspotName     = excluded.hotspotName,
+                dnsName         = excluded.dnsName,
+                currency        = excluded.currency,
+                camp            = excluded.camp,
+                sessionTimeout  = excluded.sessionTimeout,
+                phone           = excluded.phone,
+                liveReport      = excluded.liveReport,
+                serialNumber    = excluded.serialNumber,
+                verified_status = 1
             `,
             args: [
               config!.id,

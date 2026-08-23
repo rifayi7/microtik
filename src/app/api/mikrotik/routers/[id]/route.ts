@@ -103,36 +103,40 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
       let serialNumber = String(existing.serialNumber ?? "");
       
-      // If connection parameters changed, re-fetch the serial number
+      // If connection parameters changed, verify with router before updating
       if (
         host !== String(existing.host) ||
         port !== Number(existing.port) ||
         username !== String(existing.username) ||
         password !== String(existing.password ?? "")
       ) {
-        try {
-          const connTest = await testRouterConnection({
-            id,
-            sessionName,
-            host,
-            port,
-            username,
-            password,
-            useTls: Boolean(useTls),
-            hotspotName,
-            dnsName,
-            currency,
-            camp,
-            sessionTimeout,
-            phone,
-            liveReport: Boolean(liveReport),
-          });
-          if (connTest.success) {
-            serialNumber = connTest.serialNumber ?? "";
-          }
-        } catch (e) {
-          console.warn("Could not refresh serial number on update:", e);
+        const connTest = await testRouterConnection({
+          id,
+          sessionName,
+          host,
+          port,
+          username,
+          password,
+          useTls: Boolean(useTls),
+          hotspotName,
+          dnsName,
+          currency,
+          camp,
+          sessionTimeout,
+          phone,
+          liveReport: Boolean(liveReport),
+        });
+
+        if (!connTest.success) {
+          return NextResponse.json(
+            { 
+              error: `Connection test failed: ${connTest.error || "Cannot reach router with provided host, port, username, or password."}. Changes were not saved.` 
+            },
+            { status: 400 }
+          );
         }
+
+        serialNumber = connTest.serialNumber ?? "";
       }
 
       await database.execute({

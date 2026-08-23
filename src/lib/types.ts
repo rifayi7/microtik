@@ -18,6 +18,7 @@ export interface Router {
   lastConnected?: string;
   activeUsers: number;
   camp?: string;
+  verified?: boolean;
 }
 
 export interface HotspotUser {

@@ -6,10 +6,16 @@ import { fetchHotspotUsersForRouter, testRouterConnection } from "@/lib/mikrotik
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+    const verifiedOnly = url.searchParams.get("verified") === "true";
     const database = await getDB();
-    const result = await database.execute("SELECT * FROM routers");
+    
+    const query = verifiedOnly 
+      ? "SELECT * FROM routers WHERE verified_status = 1" 
+      : "SELECT * FROM routers";
+    const result = await database.execute(query);
     
     const dbRouters = result.rows.map((row) => ({
       id: String(row.id),
@@ -28,10 +34,11 @@ export async function GET() {
       phone: String(row.phone ?? ""),
       camp: row.camp ? String(row.camp) : undefined,
       serialNumber: row.serialNumber ? String(row.serialNumber) : undefined,
-      status: "unknown",
+      status: Number(row.verified_status) === 1 ? "offline" : "unknown",
+      verified: Number(row.verified_status) === 1,
     }));
 
-    // Merge with env-configured routers if any
+    // Merge with env-configured routers if any (env routers default to verified)
     let envRouters: any[] = [];
     if (isMikrotikConfigured()) {
       const configs = getConfiguredRouters();
@@ -53,6 +60,7 @@ export async function GET() {
         camp: config.camp,
         serialNumber: undefined,
         status: "unknown",
+        verified: true,
       }));
     }
 
@@ -92,12 +100,12 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Missing required fields (sessionName, host, port, username)" },
         { status: 400 }
-      )
+      );
     }
 
     const database = await getDB();
 
-    // 1. Check if hotspot name (sessionName) already exists in routers or camps tables
+    // 1. Check if hotspot name (sessionName) already exists
     const checkRouterDup = await database.execute({
       sql: "SELECT id FROM routers WHERE sessionName = ?",
       args: [sessionName],
@@ -114,7 +122,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Check if camp display name already exists in camps or routers tables
+    // 2. Check if camp display name already exists
     const campName = camp ?? sessionName;
     if (campName) {
       const checkCampName = await database.execute({
@@ -136,7 +144,7 @@ export async function POST(request: Request) {
 
     const id = `router-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    // Try to connect to router and extract its physical hardware serial number
+    // Try to test connection immediately to check if it's live or pending/draft
     const configToTest = {
       id,
       sessionName,
@@ -154,22 +162,26 @@ export async function POST(request: Request) {
       liveReport: liveReport !== false,
     };
 
+    let isVerified = false;
     let serialNumber = "";
+
     try {
       const connTest = await testRouterConnection(configToTest);
       if (connTest.success) {
+        isVerified = true;
         serialNumber = connTest.serialNumber ?? "";
       }
-    } catch (e) {
-      console.warn("Could not query serial number during creation:", e);
+    } catch {
+      // Unreachable or offline — save as unverified/pending draft
+      isVerified = false;
     }
     
     await database.execute({
       sql: `
         INSERT INTO routers (
           id, sessionName, host, port, username, password, useTls, 
-          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber, verified_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         id,
@@ -187,6 +199,7 @@ export async function POST(request: Request) {
         phone ?? "",
         liveReport !== false ? 1 : 0,
         serialNumber,
+        isVerified ? 1 : 0,
       ],
     });
 

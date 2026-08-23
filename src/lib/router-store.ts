@@ -17,6 +17,7 @@ export interface StoredRouter {
   phone: string;
   camp?: string;
   status?: ConnectionStatus;
+  verified?: boolean;
 }
 
 const ROUTERS_KEY = "hotspot-pro-routers";
