@@ -63,7 +63,7 @@ export async function GET(request: Request) {
       GROUP BY r.id
     `);
 
-    // 3. Get total payments per camp
+    // 3. Get total payments per camp and overall payments
     const paymentsResult = await database.execute(`
       SELECT camp_name as campName, SUM(COALESCE(amount, 0)) as totalPaid
       FROM payments
@@ -72,12 +72,39 @@ export async function GET(request: Request) {
 
     // Map payments for quick lookup (case-insensitive keys)
     const paymentsMap: Record<string, number> = {};
+    let grandTotalPaid = 0;
     paymentsResult.rows.forEach((row) => {
       const name = String(row.campName || "").trim().toLowerCase();
-      paymentsMap[name] = Number(row.totalPaid || 0);
+      const amt = Number(row.totalPaid || 0);
+      paymentsMap[name] = amt;
+      grandTotalPaid += amt;
     });
 
-    // 4. Merge camp data
+    // 4. Fetch last 5 collections
+    let lastCollections: any[] = [];
+    try {
+      const collectionsResult = await database.execute(`
+        SELECT amount, payment_date, payment_time, camp_name, paid_by_user
+        FROM payments
+        ORDER BY id DESC
+        LIMIT 5
+      `);
+      lastCollections = collectionsResult.rows.map((row) => ({
+        amount: Number(row.amount || 0),
+        date: String(row.payment_date || ""),
+        time: String(row.payment_time || ""),
+        campName: String(row.camp_name || ""),
+        paidBy: String(row.paid_by_user || ""),
+      }));
+    } catch {
+      // Ignore if payments table is empty
+    }
+
+    // 5. Merge camp data & calculate overall totals
+    let grandTotalRevenue = 0;
+    let grandTodaySalesCount = 0;
+    let grandTodayRevenue = 0;
+
     const summary = salesResult.rows.map((row) => {
       const campName = String(row.campName || row.hotspotName || "Unnamed Camp");
       const key = campName.trim().toLowerCase();
@@ -86,6 +113,9 @@ export async function GET(request: Request) {
       const monthlySale = Number(row.monthlySale || 0);
       const totalRevenue = Number(row.totalRevenue || 0);
       
+      grandTotalRevenue += totalRevenue;
+      grandTodaySalesCount += todaySale;
+
       const totalPaid = paymentsMap[key] || 0;
       const outstanding = Math.max(0, totalRevenue - totalPaid);
 
@@ -97,9 +127,18 @@ export async function GET(request: Request) {
       };
     });
 
+    const overallStats = {
+      totalOutstanding: Math.max(0, grandTotalRevenue - grandTotalPaid),
+      totalSalesRevenue: grandTotalRevenue,
+      todayTotalSaleCount: grandTodaySalesCount,
+      todayTotalSaleRevenue: grandTodayRevenue,
+    };
+
     return NextResponse.json({
       success: true,
       userStats,
+      overallStats,
+      lastCollections,
       data: summary,
     });
   } catch (error) {
