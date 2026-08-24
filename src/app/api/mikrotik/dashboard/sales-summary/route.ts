@@ -46,6 +46,9 @@ export async function GET(request: Request) {
     const usedAtMonthExpr = "strftime('%Y-%m', used_at, '+4 hours')";
 
     if (isFilteredBySalesperson) {
+      const targetIdVal = targetUserId ? Number(targetUserId) : -1;
+      const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
+
       const userResult = await database.execute({
         sql: `
           SELECT 
@@ -75,10 +78,10 @@ export async function GET(request: Request) {
           FROM vouchers
           WHERE status = 'redeemed' AND (
             (sales_person_id IS NOT NULL AND sales_person_id = ?)
-            OR (sold_by IS NOT NULL AND (sold_by = ? OR ? IS NULL))
+            OR (sold_by IS NOT NULL AND (sold_by = ? OR sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
           )
         `,
-        args: [targetUserId, targetUsername, targetUserId ? "NO_MATCH" : targetUsername],
+        args: [targetIdVal, targetUserVal, targetIdVal, targetUserVal],
       });
 
       if (userResult.rows.length > 0) {
