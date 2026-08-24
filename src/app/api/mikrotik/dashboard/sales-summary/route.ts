@@ -115,11 +115,11 @@ export async function GET(request: Request) {
           SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySaleCount,
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
-          SUM(COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue
+          SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
         LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed' AND (
           (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
-          OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR ? IS NULL))
+          OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
         )
         GROUP BY r.id
       `
@@ -141,15 +141,18 @@ export async function GET(request: Request) {
           SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySaleCount,
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
-          SUM(COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue
+          SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
         LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed'
         GROUP BY r.id
       `;
 
+    const targetIdVal = targetUserId ? Number(targetUserId) : -1;
+    const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
+
     const salesResult = await database.execute({
       sql: salesSql,
-      args: isFilteredBySalesperson ? [targetUserId, targetUsername, targetUserId ? "NO_MATCH" : targetUsername] : [],
+      args: isFilteredBySalesperson ? [targetIdVal, targetUserVal, targetIdVal, targetUserVal] : [],
     });
 
     // 3. Get total payments per camp and overall payments
