@@ -99,10 +99,18 @@ export async function PUT(request: Request) {
 
     const database = await getDB();
 
-    if (username && username.trim()) {
+    // Find existing username before update
+    const existingUser = await database.execute({
+      sql: "SELECT username FROM sales_persons WHERE id = ?",
+      args: [Number(id)],
+    });
+    const oldUsername = existingUser.rows[0]?.username ? String(existingUser.rows[0].username) : null;
+    const newUsername = username && username.trim() ? username.trim() : null;
+
+    if (newUsername && newUsername !== oldUsername) {
       const checkDup = await database.execute({
         sql: "SELECT id FROM sales_persons WHERE username = ? AND id != ?",
-        args: [username.trim(), Number(id)],
+        args: [newUsername, Number(id)],
       });
       if (checkDup.rows.length > 0) {
         return NextResponse.json({ success: false, error: "This username is already taken by another account" }, { status: 400 });
@@ -119,13 +127,21 @@ export async function PUT(request: Request) {
         WHERE id = ?
       `,
       args: [
-        username && username.trim() ? username.trim() : null,
+        newUsername,
         password && password.trim() ? password.trim() : null,
         role ?? null,
         campName ?? null,
         Number(id),
       ],
     });
+
+    // Cascade update to vouchers table so all past sold vouchers stay linked to the new username
+    if (newUsername && oldUsername && newUsername !== oldUsername) {
+      await database.execute({
+        sql: "UPDATE vouchers SET sold_by = ? WHERE sold_by = ?",
+        args: [newUsername, oldUsername],
+      });
+    }
 
     return NextResponse.json({ success: true, message: "Salesperson updated successfully" });
   } catch (error) {
