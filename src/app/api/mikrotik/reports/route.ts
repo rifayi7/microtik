@@ -47,11 +47,24 @@ async function handleRequest(request: Request) {
     }
 
     if (salesPersonId && !isNaN(Number(salesPersonId))) {
-      conditions.push("(v.sales_person_id = ? OR v.sold_by = ?)");
-      args.push(Number(salesPersonId), salesperson ? salesperson.trim() : "UNKNOWN");
+      conditions.push(`(
+        v.sales_person_id = ? 
+        OR v.sold_by = ? 
+        OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ?)
+        OR v.sold_by IN (SELECT display_name FROM sales_persons WHERE id = ?)
+      )`);
+      const sId = Number(salesPersonId);
+      const sName = salesperson ? salesperson.trim() : "UNKNOWN";
+      args.push(sId, sName, sId, sId);
     } else if (salesperson && salesperson.trim() !== "") {
-      conditions.push("(v.sold_by = ? OR v.sales_person_id IN (SELECT id FROM sales_persons WHERE username = ? OR display_name = ?))");
-      args.push(salesperson.trim(), salesperson.trim(), salesperson.trim());
+      conditions.push(`(
+        v.sold_by = ? 
+        OR v.sales_person_id IN (SELECT id FROM sales_persons WHERE username = ? OR display_name = ?)
+        OR v.sold_by IN (SELECT username FROM sales_persons WHERE display_name = ?)
+        OR v.sold_by IN (SELECT display_name FROM sales_persons WHERE username = ?)
+      )`);
+      const sName = salesperson.trim();
+      args.push(sName, sName, sName, sName, sName);
     }
 
     if (startDate && startDate.trim() !== "") {
