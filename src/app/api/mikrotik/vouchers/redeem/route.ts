@@ -144,11 +144,11 @@ export async function POST(request: Request) {
       try {
         await updateOrCreateHotspotUser(config, username, password, profile, comment);
 
-        // Update to redeemed on success
+        // Update to redeemed on success with Dubai Local Time (UTC+4)
         await db.execute({
           sql: `
             UPDATE vouchers 
-            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+            SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
             WHERE voucher_code = ?
           `,
           args: [mobileNumber, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, selectedVoucherCode]
@@ -160,7 +160,7 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
             args: [mobileNumber, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, errMsg, selectedVoucherCode]
@@ -301,7 +301,7 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
               WHERE voucher_code = ?
             `,
             args: [mobileNumber, salesperson || null, priceCharged, config.id, selectedVoucherCode],
@@ -333,7 +333,7 @@ export async function POST(request: Request) {
             await db.execute({
               sql: `
                 UPDATE vouchers 
-                SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+                SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
                 WHERE voucher_code = ?
               `,
               args: [mobileNumber, salesperson || null, priceCharged, errMsg, selectedVoucherCode]
@@ -361,7 +361,7 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
               WHERE voucher_code = ?
             `,
             args: [mobileNumber, salesperson || null, priceCharged, config.id, finalVoucherCode]
@@ -373,7 +373,7 @@ export async function POST(request: Request) {
             await db.execute({
               sql: `
                 UPDATE vouchers 
-                SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+                SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
                 WHERE voucher_code = ?
               `,
               args: [mobileNumber, salesperson || null, priceCharged, errMsg, finalVoucherCode]
@@ -478,7 +478,7 @@ export async function POST(request: Request) {
         await db.execute({
           sql: `
             UPDATE vouchers 
-            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+            SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
             WHERE voucher_code = ?
           `,
           args: [mobileNumber, salesperson || null, priceCharged, config.id, code],
@@ -487,7 +487,7 @@ export async function POST(request: Request) {
         await db.execute({
           sql: `
             INSERT INTO vouchers (voucher_code, validity_days, status, used_by, used_at, router_id, sold_by, price_charged, activation_status)
-            VALUES (?, ?, 'redeemed', ?, datetime('now'), ?, ?, ?, 'success')
+            VALUES (?, ?, 'redeemed', ?, datetime('now', '+4 hours'), ?, ?, ?, 'success')
           `,
           args: [code, validityDaysNum, mobileNumber, config.id, salesperson || null, priceCharged],
         });
@@ -506,7 +506,7 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now', '+4 hours'), sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
             args: [mobileNumber, salesperson || null, priceCharged, errMsg, code]
