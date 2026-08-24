@@ -6,9 +6,27 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const salesperson = url.searchParams.get("salesperson");
+    const salespersonParam = url.searchParams.get("salesperson");
+    const salesPersonIdParam = url.searchParams.get("salesPersonId");
     const database = await getDB();
     
+    // Resolve user ID if provided
+    let targetUserId: number | null = salesPersonIdParam ? Number(salesPersonIdParam) : null;
+    let targetUsername = salespersonParam && salespersonParam.trim() !== "" && salespersonParam.trim() !== "Unknown" ? salespersonParam.trim() : null;
+
+    if (!targetUserId && targetUsername) {
+      // Lookup ID from database
+      const lookup = await database.execute({
+        sql: "SELECT id, username, display_name FROM sales_persons WHERE username = ? OR display_name = ? OR CAST(id AS TEXT) = ?",
+        args: [targetUsername, targetUsername, targetUsername],
+      });
+      if (lookup.rows.length > 0) {
+        targetUserId = Number(lookup.rows[0].id);
+      }
+    }
+
+    const isFilteredBySalesperson = Boolean(targetUserId || targetUsername);
+
     // 1. Get total revenue, today sales, and monthly sales for this specific salesperson
     let userStats = {
       totalRevenue: 0,
@@ -19,14 +37,22 @@ export async function GET(request: Request) {
       totalSalesCount: 0,
     };
 
-    if (salesperson && salesperson.trim() !== "") {
+    // We compute dates using Dubai/UAE Time (UTC+4):
+    // date('now', '+4 hours') ensures 'today' runs strictly from 12:00 AM (00:00) to 11:59:59 PM local time.
+    // strftime('%Y-%m', 'now', '+4 hours') ensures 'month' strictly resets on the 1st of every calendar month.
+    const todayExpr = "date('now', '+4 hours')";
+    const monthExpr = "strftime('%Y-%m', 'now', '+4 hours')";
+    const usedAtDateExpr = "date(used_at, '+4 hours')";
+    const usedAtMonthExpr = "strftime('%Y-%m', used_at, '+4 hours')";
+
+    if (isFilteredBySalesperson) {
       const userResult = await database.execute({
         sql: `
           SELECT 
             COUNT(*) as totalSalesCount,
-            SUM(COALESCE(price_charged, 0)) as totalRevenue,
+            SUM(COALESCE(price_charged, CASE WHEN validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue,
             SUM(CASE 
-              WHEN date(used_at) = date('now') OR date(used_at) = date('now', 'localtime') THEN
+              WHEN (${usedAtDateExpr} = ${todayExpr} OR date(used_at) = date('now') OR date(used_at) = date('now', 'localtime')) THEN
                 CASE 
                   WHEN validity_days = 30 THEN 1.0
                   WHEN validity_days = 15 THEN 0.5
@@ -35,13 +61,24 @@ export async function GET(request: Request) {
                 END
               ELSE 0 
             END) as todaySalesCount,
-            SUM(CASE WHEN date(used_at) = date('now') OR date(used_at) = date('now', 'localtime') THEN COALESCE(price_charged, 0) ELSE 0 END) as todayRevenue,
-            SUM(CASE WHEN strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySalesCount,
-            SUM(CASE WHEN strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now', 'localtime') THEN COALESCE(price_charged, 0) ELSE 0 END) as monthlyRevenue
+            SUM(CASE 
+              WHEN (${usedAtDateExpr} = ${todayExpr} OR date(used_at) = date('now') OR date(used_at) = date('now', 'localtime')) THEN 
+                COALESCE(price_charged, CASE WHEN validity_days = 30 THEN 32 ELSE 16 END)
+              ELSE 0 
+            END) as todayRevenue,
+            SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySalesCount,
+            SUM(CASE 
+              WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')) THEN 
+                COALESCE(price_charged, CASE WHEN validity_days = 30 THEN 32 ELSE 16 END)
+              ELSE 0 
+            END) as monthlyRevenue
           FROM vouchers
-          WHERE status = 'redeemed' AND sold_by = ?
+          WHERE status = 'redeemed' AND (
+            (sales_person_id IS NOT NULL AND sales_person_id = ?)
+            OR (sold_by IS NOT NULL AND (sold_by = ? OR ? IS NULL))
+          )
         `,
-        args: [salesperson.trim()]
+        args: [targetUserId, targetUsername, targetUserId ? "NO_MATCH" : targetUsername],
       });
 
       if (userResult.rows.length > 0) {
@@ -58,29 +95,62 @@ export async function GET(request: Request) {
     }
 
     // 2. Get sales counts and revenue amounts per router/camp
-    const salesResult = await database.execute(`
-      SELECT 
-        COALESCE(r.camp, r.sessionName, 'Camp') as campName,
-        r.sessionName as hotspotName,
-        r.id as routerId,
-        SUM(CASE 
-          WHEN date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime') THEN
-            CASE 
-              WHEN v.validity_days = 30 THEN 1.0
-              WHEN v.validity_days = 15 THEN 0.5
-              WHEN v.validity_days = 7 THEN 0.25
-              ELSE CAST(v.validity_days AS REAL) / 30.0
-            END
-          ELSE 0 
-        END) as todaySaleCount,
-        SUM(CASE WHEN date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime') THEN COALESCE(v.price_charged, 0) ELSE 0 END) as todaySaleAmount,
-        SUM(CASE WHEN strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySaleCount,
-        SUM(CASE WHEN strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now', 'localtime') THEN COALESCE(v.price_charged, 0) ELSE 0 END) as monthlySaleAmount,
-        SUM(COALESCE(v.price_charged, 0)) as totalRevenue
-      FROM routers r
-      LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed'
-      GROUP BY r.id
-    `);
+    // If salesperson is specified, filter vouchers by this salesperson
+    const salesSql = isFilteredBySalesperson
+      ? `
+        SELECT 
+          COALESCE(r.camp, r.sessionName, 'Camp') as campName,
+          r.sessionName as hotspotName,
+          r.id as routerId,
+          SUM(CASE 
+            WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN
+              CASE 
+                WHEN v.validity_days = 30 THEN 1.0
+                WHEN v.validity_days = 15 THEN 0.5
+                WHEN v.validity_days = 7 THEN 0.25
+                ELSE CAST(v.validity_days AS REAL) / 30.0
+              END
+            ELSE 0 
+          END) as todaySaleCount,
+          SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
+          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySaleCount,
+          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
+          SUM(COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue
+        FROM routers r
+        LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed' AND (
+          (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
+          OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR ? IS NULL))
+        )
+        GROUP BY r.id
+      `
+      : `
+        SELECT 
+          COALESCE(r.camp, r.sessionName, 'Camp') as campName,
+          r.sessionName as hotspotName,
+          r.id as routerId,
+          SUM(CASE 
+            WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN
+              CASE 
+                WHEN v.validity_days = 30 THEN 1.0
+                WHEN v.validity_days = 15 THEN 0.5
+                WHEN v.validity_days = 7 THEN 0.25
+                ELSE CAST(v.validity_days AS REAL) / 30.0
+              END
+            ELSE 0 
+          END) as todaySaleCount,
+          SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
+          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySaleCount,
+          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
+          SUM(COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue
+        FROM routers r
+        LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed'
+        GROUP BY r.id
+      `;
+
+    const salesResult = await database.execute({
+      sql: salesSql,
+      args: isFilteredBySalesperson ? [targetUserId, targetUsername, targetUserId ? "NO_MATCH" : targetUsername] : [],
+    });
 
     // 3. Get total payments per camp and overall payments
     const paymentsResult = await database.execute(`
@@ -99,7 +169,7 @@ export async function GET(request: Request) {
       grandTotalPaid += amt;
     });
 
-    // 4. Merge camp data & calculate overall totals
+    // 4. Merge camp data & calculate totals
     let grandTotalRevenue = 0;
     let grandTodaySalesCount = 0;
     let grandTodayRevenue = 0;
@@ -127,15 +197,15 @@ export async function GET(request: Request) {
         monthlySale: monthlySaleAmount,
         todaySaleCount,
         monthlySaleCount,
-        outstanding,
+        outstanding: isFilteredBySalesperson ? totalRevenue : outstanding,
       };
     });
 
     const overallStats = {
-      totalOutstanding: Math.max(0, grandTotalRevenue - grandTotalPaid),
+      totalOutstanding: isFilteredBySalesperson ? userStats.totalRevenue : Math.max(0, grandTotalRevenue - grandTotalPaid),
       totalSalesRevenue: grandTotalRevenue,
-      todayTotalSaleCount: grandTodaySalesCount,
-      todayTotalSaleRevenue: grandTodayRevenue,
+      todayTotalSaleCount: isFilteredBySalesperson ? userStats.todaySalesCount : grandTodaySalesCount,
+      todayTotalSaleRevenue: isFilteredBySalesperson ? userStats.todayRevenue : grandTodayRevenue,
     };
 
     return NextResponse.json({

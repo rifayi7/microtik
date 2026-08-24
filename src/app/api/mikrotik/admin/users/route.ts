@@ -9,7 +9,7 @@ export async function GET() {
   try {
     const database = await getDB();
     const result = await database.execute(`
-      SELECT id, username, password, role, camp_name, created_at
+      SELECT id, username, display_name, password, role, camp_name, created_at
       FROM sales_persons
       ORDER BY id ASC
     `);
@@ -17,6 +17,7 @@ export async function GET() {
     const users = result.rows.map((row) => ({
       id: Number(row.id),
       username: String(row.username),
+      displayName: String(row.display_name || row.username),
       password: String(row.password),
       role: String(row.role || "salesperson"),
       campName: String(row.camp_name || "All Camps"),
@@ -33,7 +34,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { username, password, role, campName } = body;
+    const { username, displayName, password, role, campName } = body;
 
     if (!username || !password) {
       return NextResponse.json({ success: false, error: "Username and password are required" }, { status: 400 });
@@ -51,8 +52,8 @@ export async function POST(request: Request) {
     }
 
     const insertResult = await database.execute({
-      sql: "INSERT INTO sales_persons (username, password, role, camp_name) VALUES (?, ?, ?, ?)",
-      args: [username.trim(), password.trim(), role || "salesperson", campName || "All Camps"],
+      sql: "INSERT INTO sales_persons (username, display_name, password, role, camp_name) VALUES (?, ?, ?, ?, ?)",
+      args: [username.trim(), (displayName && displayName.trim()) || username.trim(), password.trim(), role || "salesperson", campName || "All Camps"],
     });
 
     return NextResponse.json({
@@ -87,11 +88,11 @@ export async function DELETE(request: Request) {
   }
 }
 
-// PUT /api/mikrotik/admin/users (Update username / password / camp / role)
+// PUT /api/mikrotik/admin/users (Update username / displayName / password / camp / role)
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, username, password, role, campName } = body;
+    const { id, username, displayName, password, role, campName } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: "User ID is required" }, { status: 400 });
@@ -101,7 +102,7 @@ export async function PUT(request: Request) {
 
     // Find existing username before update
     const existingUser = await database.execute({
-      sql: "SELECT username FROM sales_persons WHERE id = ?",
+      sql: "SELECT username, display_name FROM sales_persons WHERE id = ?",
       args: [Number(id)],
     });
     const oldUsername = existingUser.rows[0]?.username ? String(existingUser.rows[0].username) : null;
@@ -121,6 +122,7 @@ export async function PUT(request: Request) {
       sql: `
         UPDATE sales_persons 
         SET username = COALESCE(?, username),
+            display_name = COALESCE(?, display_name),
             password = COALESCE(?, password),
             role = COALESCE(?, role),
             camp_name = COALESCE(?, camp_name)
@@ -128,6 +130,7 @@ export async function PUT(request: Request) {
       `,
       args: [
         newUsername,
+        displayName && displayName.trim() ? displayName.trim() : null,
         password && password.trim() ? password.trim() : null,
         role ?? null,
         campName ?? null,

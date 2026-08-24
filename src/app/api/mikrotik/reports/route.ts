@@ -21,6 +21,7 @@ async function handleRequest(request: Request) {
     let startDate = url.searchParams.get("startDate");
     let endDate = url.searchParams.get("endDate");
     let salesperson = url.searchParams.get("salesperson");
+    let salesPersonId = url.searchParams.get("salesPersonId");
 
     if (request.method === "POST") {
       try {
@@ -30,6 +31,7 @@ async function handleRequest(request: Request) {
         if (body.startDate) startDate = body.startDate;
         if (body.endDate) endDate = body.endDate;
         if (body.salesperson) salesperson = body.salesperson;
+        if (body.salesPersonId) salesPersonId = body.salesPersonId;
       } catch {
         // Body parsing optional
       }
@@ -44,9 +46,12 @@ async function handleRequest(request: Request) {
       args.push(routerId.trim());
     }
 
-    if (salesperson && salesperson.trim() !== "") {
-      conditions.push("v.sold_by = ?");
-      args.push(salesperson.trim());
+    if (salesPersonId && !isNaN(Number(salesPersonId))) {
+      conditions.push("(v.sales_person_id = ? OR v.sold_by = ?)");
+      args.push(Number(salesPersonId), salesperson ? salesperson.trim() : "UNKNOWN");
+    } else if (salesperson && salesperson.trim() !== "") {
+      conditions.push("(v.sold_by = ? OR v.sales_person_id IN (SELECT id FROM sales_persons WHERE username = ? OR display_name = ?))");
+      args.push(salesperson.trim(), salesperson.trim(), salesperson.trim());
     }
 
     if (startDate && startDate.trim() !== "") {

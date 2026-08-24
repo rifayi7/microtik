@@ -22,11 +22,42 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
     }
 
-    const { validity_days, voucherId, voucherCode, mobileNumber: rawMobile, salesperson } = body;
+    const { validity_days, voucherId, voucherCode, mobileNumber: rawMobile, salesperson, salesPersonId } = body;
     mobileNumber = String(rawMobile || "").trim();
 
     if (!mobileNumber) {
       return NextResponse.json({ error: "Mobile number is required" }, { status: 400 });
+    }
+
+    // Resolve salesperson ID and display name
+    let resolvedSalesPersonId: number | null = salesPersonId ? Number(salesPersonId) : null;
+    let resolvedSoldBy: string | null = salesperson ? String(salesperson).trim() : null;
+
+    if (!resolvedSalesPersonId && resolvedSoldBy) {
+      try {
+        const spRes = await db.execute({
+          sql: "SELECT id, username, display_name FROM sales_persons WHERE username = ? OR display_name = ? LIMIT 1",
+          args: [resolvedSoldBy, resolvedSoldBy],
+        });
+        if (spRes.rows.length > 0) {
+          resolvedSalesPersonId = Number(spRes.rows[0].id);
+          resolvedSoldBy = String(spRes.rows[0].display_name || spRes.rows[0].username);
+        }
+      } catch {
+        // Fallback
+      }
+    } else if (resolvedSalesPersonId && !resolvedSoldBy) {
+      try {
+        const spRes = await db.execute({
+          sql: "SELECT username, display_name FROM sales_persons WHERE id = ?",
+          args: [resolvedSalesPersonId],
+        });
+        if (spRes.rows.length > 0) {
+          resolvedSoldBy = String(spRes.rows[0].display_name || spRes.rows[0].username);
+        }
+      } catch {
+        // Fallback
+      }
     }
 
     if (validity_days !== undefined && validity_days !== null) {
@@ -59,34 +90,37 @@ export async function POST(request: Request) {
         // Run cleanup of expired reservations inside transaction to free up slot
         await tx.execute(`
           UPDATE vouchers 
-          SET status = 'available', reserved_until = NULL 
-          WHERE status = 'reserved' 
-            AND reserved_until < datetime('now')
+          SET status = 'available', reserved_at = NULL, reserved_until = NULL 
+          WHERE status = 'reserved' AND reserved_until < datetime('now')
         `);
 
-        // Select the available voucher
-        const selectResult = await tx.execute({
+        // Check if there is an available voucher matching the validity
+        const checkResult = await tx.execute({
           sql: `
             SELECT voucher_code 
             FROM vouchers 
             WHERE validity_days = ? AND status = 'available' AND router_id = ?
+            ORDER BY voucher_code ASC 
             LIMIT 1
           `,
           args: [validityDaysNum, config.id]
         });
-        const row = selectResult.rows[0];
 
-        if (!row) {
-          throw new Error("No vouchers available");
+        if (checkResult.rows.length === 0) {
+          await tx.rollback();
+          return NextResponse.json(
+            { error: `No vouchers available for ${validityDaysNum}-Days plan` },
+            { status: 400 }
+          );
         }
 
-        selectedVoucherCode = String(row.voucher_code);
-        finalVoucherCode = selectedVoucherCode;
+        selectedVoucherCode = String(checkResult.rows[0].voucher_code);
 
+        // Reserve the voucher for 5 minutes
         await tx.execute({
           sql: `
             UPDATE vouchers 
-            SET status = 'reserved', reserved_until = datetime('now', '+10 minutes'), activation_status = 'pending'
+            SET status = 'reserved', reserved_at = datetime('now'), reserved_until = datetime('now', '+5 minutes')
             WHERE voucher_code = ?
           `,
           args: [selectedVoucherCode]
@@ -105,7 +139,7 @@ export async function POST(request: Request) {
       const username = selectedVoucherCode;
       const password = selectedVoucherCode;
       const profile = `${validityDaysNum}-Days`;
-      const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
+      const comment = `Mobile: ${mobileNumber}${resolvedSoldBy ? ` | Sold by: ${resolvedSoldBy}` : ""}`;
 
       try {
         await updateOrCreateHotspotUser(config, username, password, profile, comment);
@@ -114,10 +148,10 @@ export async function POST(request: Request) {
         await db.execute({
           sql: `
             UPDATE vouchers 
-            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+            SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
             WHERE voucher_code = ?
           `,
-          args: [mobileNumber, salesperson || null, priceCharged, config.id, selectedVoucherCode]
+          args: [mobileNumber, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, selectedVoucherCode]
         });
       } catch (mikrotikError) {
         const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
@@ -126,10 +160,10 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'failed', activation_error = ?
+              SET status = 'redeemed', used_by = ?, used_at = datetime('now'), sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [mobileNumber, salesperson || null, priceCharged, config.id, errMsg, selectedVoucherCode]
+            args: [mobileNumber, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, errMsg, selectedVoucherCode]
           });
         } catch (revertError) {
           console.error("Critical: Failed to log voucher activation failure", revertError);

@@ -28,6 +28,7 @@ export async function initializeDB() {
       reserved_at TEXT,
       router_id TEXT NOT NULL,
       sold_by TEXT,
+      sales_person_id INTEGER,
       price_charged REAL,
       activation_status TEXT DEFAULT 'pending',
       activation_error TEXT
@@ -55,11 +56,16 @@ export async function initializeDB() {
     );
   `);
 
-  // Ensure sold_by column exists for existing databases
+  // Ensure sold_by and sales_person_id columns exist for existing databases
   try {
     await db.execute("ALTER TABLE vouchers ADD COLUMN sold_by TEXT;");
   } catch (e) {
-    // Column already exists or table is new
+    // Column already exists
+  }
+  try {
+    await db.execute("ALTER TABLE vouchers ADD COLUMN sales_person_id INTEGER REFERENCES sales_persons(id);");
+  } catch (e) {
+    // Column already exists
   }
 
   // Ensure serialNumber column exists in routers table
@@ -75,11 +81,18 @@ export async function initializeDB() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
       password TEXT NOT NULL,
+      display_name TEXT,
       role TEXT DEFAULT 'salesperson',
       camp_name TEXT DEFAULT 'All Camps',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN display_name TEXT;");
+  } catch (e) {
+    // Column already exists
+  }
 
   // Create companies table
   await db.execute(`

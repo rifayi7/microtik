@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
     const database = await getDB();
     const result = await database.execute({
-      sql: "SELECT id, username, role, camp_name FROM sales_persons WHERE username = ? AND password = ?",
+      sql: "SELECT id, username, password, display_name, role, camp_name FROM sales_persons WHERE username = ? AND password = ?",
       args: [username.trim(), password.trim()],
     });
 
@@ -33,6 +33,7 @@ export async function POST(request: Request) {
           success: true,
           user: {
             username: username.trim(),
+            displayName: username.trim() === "Fasil@2020" ? "Fasil" : "Rifai",
             role: "salesperson",
             campName: "All Camps",
           },
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
       user: {
         id: Number(row.id),
         username: String(row.username),
+        displayName: String(row.display_name || row.username),
         role: String(row.role || "salesperson"),
         campName: String(row.camp_name || "All Camps"),
       },

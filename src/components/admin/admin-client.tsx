@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  Building2,
   DollarSign,
   Key,
   Lock,
@@ -49,6 +50,7 @@ import { fetchMikrotikApi } from "@/lib/api/client";
 interface AdminUser {
   id: number;
   username: string;
+  displayName: string;
   password: string;
   role: string;
   campName: string;
@@ -74,6 +76,7 @@ export function AdminClient() {
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [newUsername, setNewUsername] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("salesperson");
   const [newUserCamp, setNewUserCamp] = useState("All Camps");
@@ -126,6 +129,7 @@ export function AdminClient() {
   const handleOpenAddUser = () => {
     setEditingUser(null);
     setNewUsername("");
+    setNewDisplayName("");
     setNewPassword("");
     setNewUserRole("salesperson");
     setNewUserCamp("All Camps");
@@ -135,6 +139,7 @@ export function AdminClient() {
   const handleOpenEditUser = (user: AdminUser) => {
     setEditingUser(user);
     setNewUsername(user.username);
+    setNewDisplayName(user.displayName || user.username);
     setNewPassword("");
     setNewUserRole(user.role);
     setNewUserCamp(user.campName);
@@ -158,29 +163,32 @@ export function AdminClient() {
           body: JSON.stringify({
             id: editingUser.id,
             username: newUsername.trim(),
+            displayName: newDisplayName.trim() || newUsername.trim(),
             password: newPassword.trim() ? newPassword.trim() : undefined,
             role: newUserRole,
             campName: newUserCamp,
           }),
         });
-        toast.success(`Salesperson account updated to "${newUsername.trim()}"!`);
+        toast.success(`Salesperson account updated to "${newDisplayName.trim() || newUsername.trim()}"!`);
       } else {
         // Create user
         await fetchMikrotikApi("/api/mikrotik/admin/users", {
           method: "POST",
           body: JSON.stringify({
             username: newUsername.trim(),
+            displayName: newDisplayName.trim() || newUsername.trim(),
             password: newPassword.trim(),
             role: newUserRole,
             campName: newUserCamp,
           }),
         });
-        toast.success(`Salesperson account "${newUsername}" created successfully!`);
+        toast.success(`Salesperson account "${newDisplayName || newUsername}" created successfully!`);
       }
 
       setUserModalOpen(false);
       setEditingUser(null);
       setNewUsername("");
+      setNewDisplayName("");
       setNewPassword("");
       await loadData();
     } catch (err) {
@@ -327,39 +335,45 @@ export function AdminClient() {
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="w-12">#</TableHead>
-                  <TableHead>Username / Operator</TableHead>
-                  <TableHead>Password</TableHead>
-                  <TableHead>Role</TableHead>
+                  <TableHead>Login Username</TableHead>
+                  <TableHead>Display Name</TableHead>
                   <TableHead>Assigned Camp</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Password / PIN</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                      No salespeople found. Click &quot;Add New Salesperson&quot; to create one.
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                      No salespeople found. Click &quot;Add Salesperson&quot; to create one.
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredUsers.map((user, idx) => (
                     <TableRow key={user.id}>
                       <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
-                      <TableCell className="font-medium flex items-center gap-2">
-                        <div className="size-7 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 font-bold text-xs">
-                          {user.username.charAt(0).toUpperCase()}
-                        </div>
+                      <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
                         {user.username}
                       </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        ••••••••
+                      <TableCell className="font-medium text-blue-700 dark:text-blue-300">
+                        {user.displayName || user.username}
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
+                          <Building2 className="size-3" />
+                          {user.campName}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300">
                           {user.role}
                         </span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{user.campName}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        ••••••••
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Button
@@ -521,13 +535,23 @@ export function AdminClient() {
 
             <div className="space-y-4 py-4">
               <div className="space-y-1.5">
-                <Label htmlFor="username">Username / Operator Name</Label>
+                <Label htmlFor="username">Login Username</Label>
                 <Input
                   id="username"
-                  placeholder="e.g. Akif or Fasil@2020"
+                  placeholder="e.g. Fasil@2020 or Akif"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
                   required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="displayName">Display Name (Shown on Welcome Screen)</Label>
+                <Input
+                  id="displayName"
+                  placeholder="e.g. Fasil or Akif"
+                  value={newDisplayName}
+                  onChange={(e) => setNewDisplayName(e.target.value)}
                 />
               </div>
 
