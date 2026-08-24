@@ -69,6 +69,72 @@ export async function initializeDB() {
     // Column already exists or table is new
   }
 
+  // Create sales_persons table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS sales_persons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      role TEXT DEFAULT 'salesperson',
+      camp_name TEXT DEFAULT 'All Camps',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Create companies table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+  `);
+
+  // Create camps table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS camps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      company_name TEXT,
+      hotspot_name TEXT,
+      strength INTEGER DEFAULT 500
+    );
+  `);
+
+  // Create validity_profiles table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS validity_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+  `);
+
+  // Create camp_validity_pricing table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS camp_validity_pricing (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      camp_name TEXT NOT NULL,
+      validity_name TEXT NOT NULL,
+      company_name TEXT,
+      price REAL NOT NULL,
+      status INTEGER DEFAULT 1,
+      UNIQUE(camp_name, validity_name)
+    );
+  `);
+
+  // Ensure default admin & salesperson accounts exist if users table is empty
+  try {
+    const userCountRes = await db.execute("SELECT COUNT(*) as count FROM users");
+    if (Number(userCountRes.rows[0]?.count ?? 0) === 0) {
+      await db.batch([
+        { sql: "INSERT OR IGNORE INTO users (username, password, role, camp_name) VALUES (?, ?, ?, ?)", args: ["admin", "admin123", "admin", "All Camps"] },
+        { sql: "INSERT OR IGNORE INTO users (username, password, role, camp_name) VALUES (?, ?, ?, ?)", args: ["Fasil@2020", "1234", "salesperson", "camp2"] },
+        { sql: "INSERT OR IGNORE INTO users (username, password, role, camp_name) VALUES (?, ?, ?, ?)", args: ["Rifai", "3421", "salesperson", "camp3"] },
+      ], "write");
+    }
+  } catch (e) {
+    // Ignore if already seeded
+  }
+
   // Ensure verified_status column exists in routers table (1 = verified/active, 0 = pending/unverified)
   try {
     await db.execute("ALTER TABLE routers ADD COLUMN verified_status INTEGER DEFAULT 0;");

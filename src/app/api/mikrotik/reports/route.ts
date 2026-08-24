@@ -3,42 +3,124 @@ import { getDB } from "@/lib/db";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
+  return handleRequest(request);
+}
+
+export async function POST(request: Request) {
+  return handleRequest(request);
+}
+
+async function handleRequest(request: Request) {
   try {
     const db = await getDB();
+    const url = new URL(request.url);
 
-    // 1. Get total sold vouchers count
-    const totalSoldResult = await db.execute("SELECT COUNT(*) as count FROM vouchers WHERE status = 'redeemed'");
+    let routerId = url.searchParams.get("routerId");
+    let search = url.searchParams.get("search");
+    let startDate = url.searchParams.get("startDate");
+    let endDate = url.searchParams.get("endDate");
+    let salesperson = url.searchParams.get("salesperson");
+
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        if (body.routerId) routerId = body.routerId;
+        if (body.search) search = body.search;
+        if (body.startDate) startDate = body.startDate;
+        if (body.endDate) endDate = body.endDate;
+        if (body.salesperson) salesperson = body.salesperson;
+      } catch {
+        // Body parsing optional
+      }
+    }
+
+    // Build dynamic WHERE clause
+    const conditions: string[] = ["v.status = 'redeemed'"];
+    const args: any[] = [];
+
+    if (routerId && routerId.trim() !== "") {
+      conditions.push("v.router_id = ?");
+      args.push(routerId.trim());
+    }
+
+    if (salesperson && salesperson.trim() !== "") {
+      conditions.push("v.sold_by = ?");
+      args.push(salesperson.trim());
+    }
+
+    if (startDate && startDate.trim() !== "") {
+      conditions.push("date(v.used_at) >= date(?)");
+      args.push(startDate.trim());
+    }
+
+    if (endDate && endDate.trim() !== "") {
+      conditions.push("date(v.used_at) <= date(?)");
+      args.push(endDate.trim());
+    }
+
+    if (search && search.trim() !== "") {
+      const term = `%${search.trim()}%`;
+      conditions.push("(v.voucher_code LIKE ? OR v.used_by LIKE ? OR v.sold_by LIKE ?)");
+      args.push(term, term, term);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    // 1. Total sold vouchers count
+    const totalSoldResult = await db.execute({
+      sql: `SELECT COUNT(*) as count FROM vouchers v ${whereClause}`,
+      args,
+    });
     const totalSoldRow = totalSoldResult.rows[0];
     const totalSold = totalSoldRow ? Number(totalSoldRow.count) : 0;
 
-    // 2. Get sales count grouped by salesperson
-    const salespersonResult = await db.execute(`
-      SELECT sold_by as name, COUNT(*) as count 
-      FROM vouchers 
-      WHERE status = 'redeemed' AND sold_by IS NOT NULL 
-      GROUP BY sold_by
-      ORDER BY count DESC
-    `);
-    const salespersonRows = salespersonResult.rows.map(row => ({
+    // 2. Sales count grouped by salesperson
+    const salespersonResult = await db.execute({
+      sql: `
+        SELECT v.sold_by as name, COUNT(*) as count 
+        FROM vouchers v
+        ${whereClause} AND v.sold_by IS NOT NULL AND v.sold_by != ''
+        GROUP BY v.sold_by
+        ORDER BY count DESC
+      `,
+      args,
+    });
+    const salespersonRows = salespersonResult.rows.map((row) => ({
       name: String(row.name),
-      count: Number(row.count)
+      count: Number(row.count),
     }));
 
-    // 3. Get detailed sales log
-    const salesLogResult = await db.execute(`
-      SELECT voucher_code as code, validity_days as validity, used_by as mobile, used_at as timestamp, sold_by as seller, router_id as routerId
-      FROM vouchers
-      WHERE status = 'redeemed'
-      ORDER BY used_at DESC
-    `);
-    const salesLogs = salesLogResult.rows.map(row => ({
+    // 3. Detailed sales log
+    const salesLogResult = await db.execute({
+      sql: `
+        SELECT 
+          v.voucher_code as code, 
+          v.validity_days as validity, 
+          v.used_by as mobile, 
+          v.used_at as timestamp, 
+          v.sold_by as seller, 
+          v.price_charged as price,
+          v.router_id as routerId,
+          COALESCE(r.camp, r.sessionName, 'Camp') as campName
+        FROM vouchers v
+        LEFT JOIN routers r ON r.id = v.router_id
+        ${whereClause}
+        ORDER BY v.used_at DESC
+        LIMIT 200
+      `,
+      args,
+    });
+
+    const salesLogs = salesLogResult.rows.map((row) => ({
       code: String(row.code),
-      validity: Number(row.validity),
+      validity: Number(row.validity || 0),
       mobile: String(row.mobile ?? ""),
       timestamp: String(row.timestamp ?? ""),
       seller: String(row.seller ?? ""),
-      routerId: String(row.routerId ?? "")
+      price: Number(row.price || 0),
+      routerId: String(row.routerId ?? ""),
+      campName: String(row.campName ?? ""),
     }));
 
     return NextResponse.json({
@@ -58,5 +140,12 @@ export async function GET() {
 }
 
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 204 });
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept",
+    },
+  });
 }

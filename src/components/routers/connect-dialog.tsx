@@ -59,14 +59,16 @@ export function ConnectDialog({
       });
 
       if (!result.success) {
-        setError(result.error ?? "Connection failed");
+        const message = result.error || "Connection failed: Router is unreachable or credentials are incorrect.";
+        setError(message);
         return;
       }
 
       setDetails(result);
       onConnect(router);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Connection failed");
+      const msg = err instanceof Error ? err.message : "Connection failed";
+      setError(msg || "Could not establish connection to router. Please check IP address, port, username, and password.");
     } finally {
       setConnecting(false);
     }

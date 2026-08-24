@@ -109,16 +109,10 @@ export function RouterListClient() {
     setDeleteTarget(null);
   };
 
-  const handleConnectSuccess = (target: Router) => {
-    setRouters((prev) =>
-      prev.map((r) =>
-        r.id === target.id
-          ? { ...r, status: "online", lastConnected: new Date().toISOString() }
-          : r
-      )
-    );
-    setConnectTarget(null);
+  const handleConnectSuccess = async (target: Router) => {
     toast.success(`Connected to ${target.sessionName}`);
+    setConnectTarget(null);
+    await loadRouters();
   };
 
   return (

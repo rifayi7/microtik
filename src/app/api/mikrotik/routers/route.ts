@@ -203,30 +203,32 @@ export async function POST(request: Request) {
       ],
     });
 
-    // 2. Automatically link/insert the new camp configuration
-    try {
-      await database.execute({
-        sql: "INSERT OR IGNORE INTO camps (name, hotspot_name) VALUES (?, ?)",
-        args: [campName, sessionName],
-      });
-    } catch (e) {
-      console.warn("Could not insert camp metadata (table might not exist yet):", e);
-    }
+    // 2. Automatically link/insert the new camp configuration ONLY if connection is verified
+    if (isVerified) {
+      try {
+        await database.execute({
+          sql: "INSERT OR IGNORE INTO camps (name, hotspot_name) VALUES (?, ?)",
+          args: [campName, sessionName],
+        });
+      } catch (e) {
+        console.warn("Could not insert camp metadata:", e);
+      }
 
-    // 3. Automatically seed default validity profile pricing for this camp
-    try {
-      await database.batch([
-        {
-          sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
-          args: [campName, "15-Days", 16, 1],
-        },
-        {
-          sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
-          args: [campName, "30-Days", 32, 1],
-        },
-      ], "write");
-    } catch (e) {
-      console.warn("Could not insert camp pricing data (table might not exist yet):", e);
+      // 3. Automatically seed default validity profile pricing for this verified camp
+      try {
+        await database.batch([
+          {
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
+            args: [campName, "15-Days", 16, 1],
+          },
+          {
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
+            args: [campName, "30-Days", 32, 1],
+          },
+        ], "write");
+      } catch (e) {
+        console.warn("Could not insert camp pricing data:", e);
+      }
     }
 
     const created = {

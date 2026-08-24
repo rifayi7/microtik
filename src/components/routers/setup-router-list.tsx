@@ -78,74 +78,184 @@ export function SetupRouterList() {
         Add Router
       </Button>
 
-      <div className="overflow-hidden rounded-lg border bg-white dark:bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/60 hover:bg-muted/60">
-              <TableHead className="w-12">#</TableHead>
-              <TableHead>Session Name</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Hotspot Name</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {routers.length === 0 ? (
+      {routers.length === 0 ? (
+        <div className="overflow-hidden rounded-lg border bg-white dark:bg-card">
+          <Table>
+            <TableBody>
               <TableRow>
                 <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
                   No routers added. Click &quot;Add Router&quot; to get started.
                 </TableCell>
               </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* SECTION 1: Verified & Active Camps */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20"></span>
+                Verified & Active Camps
+                <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.2 text-xs font-semibold text-emerald-600">
+                  {routers.filter((r) => r.verified !== false).length}
+                </span>
+              </h3>
+            </div>
+
+            {routers.filter((r) => r.verified !== false).length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
+                No active verified camps. Connect to a router below to activate it.
+              </div>
             ) : (
-              routers.map((router, index) => (
-                <TableRow key={router.id} className={index % 2 ? "bg-muted/20" : ""}>
-                  <TableCell>{index + 1}</TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-2 font-medium">
-                      <Tag className="size-3.5 text-muted-foreground" />
-                      {router.sessionName}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => setDeleteTarget(router)}
-                      >
-                        <Trash2 className="size-4 text-red-500" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        render={<Link href={`/routers/${router.id}`} />}
-                        nativeButton={false}
-                      >
-                        <Settings className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        disabled={connectingId === router.id}
-                        onClick={() => void handleConnect(router)}
-                      >
-                        <PlugZap
-                          className={`size-4 ${connectingId === router.id ? "animate-pulse" : ""}`}
-                        />
-                      </Button>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-2">
-                      <Wifi className="size-3.5 text-muted-foreground" />
-                      {router.hotspotName}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))
+              <div className="overflow-hidden rounded-lg border bg-white dark:bg-card">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/60 hover:bg-muted/60">
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Session Name</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Hotspot Name</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {routers
+                      .filter((r) => r.verified !== false)
+                      .map((router, index) => (
+                        <TableRow key={router.id} className={index % 2 ? "bg-muted/20" : ""}>
+                          <TableCell>{index + 1}</TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-2 font-medium">
+                              <Tag className="size-3.5 text-muted-foreground" />
+                              {router.sessionName}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                onClick={() => setDeleteTarget(router)}
+                              >
+                                <Trash2 className="size-4 text-red-500" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                render={<Link href={`/routers/${router.id}`} />}
+                                nativeButton={false}
+                              >
+                                <Settings className="size-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                disabled={connectingId === router.id}
+                                onClick={() => void handleConnect(router)}
+                              >
+                                <PlugZap
+                                  className={`size-4 ${connectingId === router.id ? "animate-pulse" : ""}`}
+                                />
+                              </Button>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-2">
+                              <Wifi className="size-3.5 text-muted-foreground" />
+                              {router.hotspotName}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
-          </TableBody>
-        </Table>
-      </div>
+          </div>
+
+          {/* SECTION 2: Pending / Unverified Routers */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-500 ring-2 ring-amber-500/20"></span>
+                Pending / Unverified Routers (Drafts)
+                <span className="rounded-md bg-amber-500/10 px-1.5 py-0.2 text-xs font-semibold text-amber-600">
+                  {routers.filter((r) => r.verified === false).length}
+                </span>
+              </h3>
+            </div>
+
+            {routers.filter((r) => r.verified === false).length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
+                No pending draft routers.
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-lg border bg-white dark:bg-card">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-amber-500/10 hover:bg-amber-500/10">
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Session Name</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {routers
+                      .filter((r) => r.verified === false)
+                      .map((router, index) => (
+                        <TableRow key={router.id} className="bg-amber-500/[0.02]">
+                          <TableCell>{index + 1}</TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-2 font-medium">
+                              <Tag className="size-3.5 text-muted-foreground" />
+                              {router.sessionName}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                onClick={() => setDeleteTarget(router)}
+                              >
+                                <Trash2 className="size-4 text-red-500" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                render={<Link href={`/routers/${router.id}`} />}
+                                nativeButton={false}
+                              >
+                                <Settings className="size-4" />
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className="border-amber-500/30 text-amber-600 hover:bg-amber-50 ml-1"
+                                disabled={connectingId === router.id}
+                                onClick={() => void handleConnect(router)}
+                              >
+                                <PlugZap className={`mr-1 size-3.5 ${connectingId === router.id ? "animate-pulse" : ""}`} />
+                                Verify
+                              </Button>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-600">
+                              Pending Connect
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <AddRouterDialog open={addOpen} onOpenChange={setAddOpen} />
 

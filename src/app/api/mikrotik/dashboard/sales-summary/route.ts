@@ -25,10 +25,19 @@ export async function GET(request: Request) {
           SELECT 
             COUNT(*) as totalSalesCount,
             SUM(COALESCE(price_charged, 0)) as totalRevenue,
-            SUM(CASE WHEN date(used_at) = date('now', 'localtime') THEN 1 ELSE 0 END) as todaySalesCount,
-            SUM(CASE WHEN date(used_at) = date('now', 'localtime') THEN COALESCE(price_charged, 0) ELSE 0 END) as todayRevenue,
-            SUM(CASE WHEN strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySalesCount,
-            SUM(CASE WHEN strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now', 'localtime') THEN COALESCE(price_charged, 0) ELSE 0 END) as monthlyRevenue
+            SUM(CASE 
+              WHEN date(used_at) = date('now') OR date(used_at) = date('now', 'localtime') THEN
+                CASE 
+                  WHEN validity_days = 30 THEN 1.0
+                  WHEN validity_days = 15 THEN 0.5
+                  WHEN validity_days = 7 THEN 0.25
+                  ELSE CAST(validity_days AS REAL) / 30.0
+                END
+              ELSE 0 
+            END) as todaySalesCount,
+            SUM(CASE WHEN date(used_at) = date('now') OR date(used_at) = date('now', 'localtime') THEN COALESCE(price_charged, 0) ELSE 0 END) as todayRevenue,
+            SUM(CASE WHEN strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySalesCount,
+            SUM(CASE WHEN strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now', 'localtime') THEN COALESCE(price_charged, 0) ELSE 0 END) as monthlyRevenue
           FROM vouchers
           WHERE status = 'redeemed' AND sold_by = ?
         `,
@@ -48,14 +57,25 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. Get sales counts and total revenue per router/camp
+    // 2. Get sales counts and revenue amounts per router/camp
     const salesResult = await database.execute(`
       SELECT 
         COALESCE(r.camp, r.sessionName, 'Camp') as campName,
         r.sessionName as hotspotName,
         r.id as routerId,
-        SUM(CASE WHEN date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime') THEN 1 ELSE 0 END) as todaySale,
-        SUM(CASE WHEN strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySale,
+        SUM(CASE 
+          WHEN date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime') THEN
+            CASE 
+              WHEN v.validity_days = 30 THEN 1.0
+              WHEN v.validity_days = 15 THEN 0.5
+              WHEN v.validity_days = 7 THEN 0.25
+              ELSE CAST(v.validity_days AS REAL) / 30.0
+            END
+          ELSE 0 
+        END) as todaySaleCount,
+        SUM(CASE WHEN date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime') THEN COALESCE(v.price_charged, 0) ELSE 0 END) as todaySaleAmount,
+        SUM(CASE WHEN strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now', 'localtime') THEN 1 ELSE 0 END) as monthlySaleCount,
+        SUM(CASE WHEN strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now') OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now', 'localtime') THEN COALESCE(v.price_charged, 0) ELSE 0 END) as monthlySaleAmount,
         SUM(COALESCE(v.price_charged, 0)) as totalRevenue
       FROM routers r
       LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed'
@@ -88,20 +108,25 @@ export async function GET(request: Request) {
       const campName = String(row.campName || row.hotspotName || "Unnamed Camp");
       const key = campName.trim().toLowerCase();
       
-      const todaySale = Number(row.todaySale || 0);
-      const monthlySale = Number(row.monthlySale || 0);
+      const todaySaleCount = Number(row.todaySaleCount || 0);
+      const todaySaleAmount = Number(row.todaySaleAmount || 0);
+      const monthlySaleCount = Number(row.monthlySaleCount || 0);
+      const monthlySaleAmount = Number(row.monthlySaleAmount || 0);
       const totalRevenue = Number(row.totalRevenue || 0);
       
       grandTotalRevenue += totalRevenue;
-      grandTodaySalesCount += todaySale;
+      grandTodaySalesCount += todaySaleCount;
+      grandTodayRevenue += todaySaleAmount;
 
       const totalPaid = paymentsMap[key] || 0;
       const outstanding = Math.max(0, totalRevenue - totalPaid);
 
       return {
         campName,
-        todaySale,
-        monthlySale,
+        todaySale: todaySaleAmount,
+        monthlySale: monthlySaleAmount,
+        todaySaleCount,
+        monthlySaleCount,
         outstanding,
       };
     });

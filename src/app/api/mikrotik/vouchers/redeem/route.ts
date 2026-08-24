@@ -35,14 +35,23 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Invalid validity period" }, { status: 400 });
       }
 
-      // Fetch dynamic price from database or fallback to defaults
-      const priceResult = await db.execute({
-        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
-        args: [validityDaysNum]
-      });
-      const priceCharged = priceResult.rows[0] 
-        ? Number(priceResult.rows[0].price) 
-        : (validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+      // Fetch dynamic price from camp_validity_pricing by camp name
+      const campName = config.camp ?? config.sessionName;
+      const validityLabel = `${validityDaysNum}-Days`;
+      
+      let priceCharged = validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2;
+
+      try {
+        const campPriceRes = await db.execute({
+          sql: "SELECT price FROM camp_validity_pricing WHERE (camp_name = ? OR camp_name = ?) AND validity_name = ?",
+          args: [campName, config.sessionName, validityLabel],
+        });
+        if (campPriceRes.rows.length > 0 && campPriceRes.rows[0].price !== null) {
+          priceCharged = Number(campPriceRes.rows[0].price);
+        }
+      } catch {
+        // Use default fallback price
+      }
 
       // Step 1: Transaction to select and mark the voucher as reserved
       const tx = await db.transaction("write");
@@ -176,14 +185,22 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `Could not parse validity days from profile: ${profileName}` }, { status: 400 });
       }
 
-      // Fetch dynamic price from database or fallback to defaults
-      const priceResult = await db.execute({
-        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
-        args: [validityDaysNum]
-      });
-      const priceCharged = priceResult.rows[0] 
-        ? Number(priceResult.rows[0].price) 
-        : (validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+      // Fetch dynamic price from camp_validity_pricing by camp name
+      const campName = config.camp ?? config.sessionName;
+      const validityLabel = `${validityDaysNum}-Days`;
+      let priceCharged = validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2;
+
+      try {
+        const campPriceRes = await db.execute({
+          sql: "SELECT price FROM camp_validity_pricing WHERE (camp_name = ? OR camp_name = ?) AND validity_name = ?",
+          args: [campName, config.sessionName, validityLabel],
+        });
+        if (campPriceRes.rows.length > 0 && campPriceRes.rows[0].price !== null) {
+          priceCharged = Number(campPriceRes.rows[0].price);
+        }
+      } catch {
+        // Use default fallback price
+      }
 
       // Check status in database
       const checkResult = await db.execute({
@@ -405,14 +422,22 @@ export async function POST(request: Request) {
       selectedVoucherCode = code;
       finalVoucherCode = code;
 
-      // Fetch dynamic price from database or fallback to defaults
-      const priceResult = await db.execute({
-        sql: "SELECT price FROM sales_pricing WHERE validity_days = ?",
-        args: [validityDaysNum]
-      });
-      const priceCharged = priceResult.rows[0] 
-        ? Number(priceResult.rows[0].price) 
-        : (validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2);
+      // Fetch dynamic price from camp_validity_pricing by camp name
+      const campName = config.camp ?? config.sessionName;
+      const validityLabel = `${validityDaysNum}-Days`;
+      let priceCharged = validityDaysNum === 30 ? 32 : validityDaysNum === 15 ? 16 : validityDaysNum === 10 ? 20 : validityDaysNum === 7 ? 15 : validityDaysNum * 2;
+
+      try {
+        const campPriceRes = await db.execute({
+          sql: "SELECT price FROM camp_validity_pricing WHERE (camp_name = ? OR camp_name = ?) AND validity_name = ?",
+          args: [campName, config.sessionName, validityLabel],
+        });
+        if (campPriceRes.rows.length > 0 && campPriceRes.rows[0].price !== null) {
+          priceCharged = Number(campPriceRes.rows[0].price);
+        }
+      } catch {
+        // Use default fallback price
+      }
 
       // Mark as used in database
       if (!isNewVoucher) {
