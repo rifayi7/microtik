@@ -117,16 +117,38 @@ async function handleRequest(request: Request) {
       args,
     });
 
-    const salesLogs = salesLogResult.rows.map((row) => ({
-      code: String(row.code),
-      validity: Number(row.validity || 0),
-      mobile: String(row.mobile ?? ""),
-      timestamp: String(row.timestamp ?? ""),
-      seller: String(row.seller ?? ""),
-      price: Number(row.price || 0),
-      routerId: String(row.routerId ?? ""),
-      campName: String(row.campName ?? ""),
-    }));
+    const formatDubaiTime = (dateStr?: string) => {
+      if (!dateStr || dateStr.trim() === "" || dateStr === "null") return "";
+      try {
+        const parts = dateStr.split(" ");
+        if (parts.length >= 2) {
+          const [dPart, tPart] = parts;
+          const [hh, mm] = tPart.split(":");
+          let h = parseInt(hh, 10);
+          const ampm = h >= 12 ? "PM" : "AM";
+          h = h % 12 || 12;
+          return `${dPart} ${h}:${mm} ${ampm}`;
+        }
+        return dateStr;
+      } catch {
+        return dateStr || "";
+      }
+    };
+
+    const salesLogs = salesLogResult.rows.map((row) => {
+      const rawTimestamp = String(row.timestamp ?? "");
+      return {
+        code: String(row.code),
+        validity: Number(row.validity || 0),
+        mobile: String(row.mobile ?? ""),
+        timestamp: rawTimestamp,
+        formattedTime: formatDubaiTime(rawTimestamp),
+        seller: String(row.seller ?? ""),
+        price: Number(row.price || 0),
+        routerId: String(row.routerId ?? ""),
+        campName: String(row.campName ?? ""),
+      };
+    });
 
     return NextResponse.json({
       success: true,
