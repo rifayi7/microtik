@@ -3,6 +3,7 @@ export const APP_DESCRIPTION =
   "Professional MikroTik hotspot management for network operators";
 
 export const CHARACTER_OPTIONS = [
+  { value: "1234", label: "1234" },
   { value: "abcd", label: "abcd" },
   { value: "ABCD", label: "ABCD" },
   { value: "aBcD", label: "aBcD" },
@@ -12,6 +13,7 @@ export const CHARACTER_OPTIONS = [
 ] as const;
 
 export const CHARACTER_SETS: Record<string, string> = {
+  "1234": "1234567890",
   abcd: "abcdefghijklmnopqrstuvwxyz",
   ABCD: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
   aBcD: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
