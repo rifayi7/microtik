@@ -74,7 +74,7 @@ export function AppHeader({ title }: AppHeaderProps) {
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium">Admin User</p>
-                  <p className="text-xs text-muted-foreground">admin@hotspot.pro</p>
+                  <p className="text-xs text-muted-foreground">admin@mywifi.local</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

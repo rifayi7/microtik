@@ -1,6 +1,6 @@
-export const APP_NAME = "HotSpot Pro";
+export const APP_NAME = "My WiFi";
 export const APP_DESCRIPTION =
-  "Professional MikroTik hotspot management for network operators";
+  "MikroTik hotspot management for network operators";
 
 export const CHARACTER_OPTIONS = [
   { value: "1234", label: "1234" },

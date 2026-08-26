@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Wifi } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,7 +93,7 @@ export function AppSidebar() {
 
         <SidebarHeader className="border-b bg-transparent px-3 py-4">
           <div className="mx-auto flex size-16 items-center justify-center rounded-2xl border-4 border-white bg-white shadow-sm">
-            <span className="text-3xl font-black text-[#4A60D6]">T</span>
+            <Wifi className="size-8 text-[#4A60D6]" />
           </div>
           {isConnected && (
             <Select
