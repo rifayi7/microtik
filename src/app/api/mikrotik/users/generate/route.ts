@@ -36,10 +36,15 @@ export async function POST(request: Request) {
     const generatedCodes = await generateHotspotUsers(config, {
       qty: count,
       server: server ? String(server) : "all",
-      userMode: userMode === "username_only" ? "username_only" : "username_equals_password",
+      userMode:
+        userMode === "username_and_password"
+          ? "username_and_password"
+          : userMode === "username_only"
+          ? "username_only"
+          : "username_equals_password",
       nameLength: len,
       prefix: prefix ? String(prefix) : "",
-      characters: characters ? String(characters) : "abcd2345",
+      characters: characters ? String(characters) : "5ab2c34d",
       profile: profile ? String(profile) : "default",
       comment: comment ? String(comment) : "",
     });

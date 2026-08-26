@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
+  AlertCircle,
   Banknote,
   Cpu,
   HardDrive,
   MemoryStick,
+  Plus,
   Tag,
   Users,
   Wifi,
@@ -15,6 +18,7 @@ import { useRouterContext } from "@/contexts/router-context";
 import { fetchForRouter } from "@/lib/api/client";
 import { formatCurrency } from "@/lib/format";
 import type { ConnectedDashboardData } from "@/lib/types";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { TableSkeleton } from "@/components/shared/table-skeleton";
@@ -49,85 +53,6 @@ function LiveHeaderClock() {
   );
 }
 
-import type { StoredRouter } from "@/lib/router-store";
-
-const MOCK_ROUTER: StoredRouter = {
-  id: "demo-router",
-  sessionName: "SmartWifi-Demo",
-  host: "192.168.88.1",
-  port: 8728,
-  username: "demo",
-  password: "",
-  useTls: false,
-  hotspotName: "SmartWifi-Hotspot",
-  dnsName: "smartwifi.net",
-  currency: "AED",
-  sessionTimeout: "30 minutes",
-  liveReport: true,
-  phone: "",
-  status: "online",
-};
-
-const MOCK_DASHBOARD_DATA: ConnectedDashboardData = {
-  resource: {
-    cpuLoad: "8",
-    cpuCount: "4",
-    cpuFrequency: "716 MHz",
-    memoryUsed: "42.8 MB",
-    memoryTotal: "128.0 MB",
-    memoryPercent: 33,
-    hddUsed: "9.2 MB",
-    hddTotal: "16.0 MB",
-    hddPercent: 57,
-    uptime: "2w4d18h",
-    version: "7.12.1",
-    boardName: "hAP ac lite",
-    identity: "SmartWifi-Demo",
-  },
-  activeSessions: 18,
-  totalUsers: 120,
-  incomeToday: 85,
-  incomeMonth: 2150,
-  currency: "AED",
-  appLogs: [
-    "10:47:12 Loading Hotspot Info",
-    "10:47:13 Connected in Demo Mode",
-    "10:47:14 Dashboard synced",
-  ],
-  hotspotLogs: [
-    { id: "log-1", time: "22:45:01", user: "guest_7342", message: "guest_7342 connected (IP: 192.168.88.254)" },
-    { id: "log-2", time: "22:41:12", user: "guest_1109", message: "guest_1109 logged in successfully" },
-    { id: "log-3", time: "22:35:48", user: "admin", message: "admin logged in from 192.168.88.15" },
-    { id: "log-4", time: "22:15:22", user: "guest_8922", message: "guest_8922 disconnected: keepalive timeout" },
-  ],
-  sessions: [
-    {
-      id: "sess-1",
-      username: "guest_7342",
-      routerId: "demo-router",
-      routerName: "SmartWifi-Demo",
-      ipAddress: "192.168.88.254",
-      macAddress: "00:0C:42:F3:81:4A",
-      uptime: "00:15:32",
-      download: "24.5 MB",
-      upload: "4.8 MB",
-      profile: "1-Day",
-    },
-    {
-      id: "sess-2",
-      username: "guest_1109",
-      routerId: "demo-router",
-      routerName: "SmartWifi-Demo",
-      ipAddress: "192.168.88.253",
-      macAddress: "00:0C:42:E2:12:9F",
-      uptime: "01:22:10",
-      download: "95.2 MB",
-      upload: "18.1 MB",
-      profile: "30-Days",
-    },
-  ],
-};
-
 export function ConnectedDashboard() {
   const { activeRouter } = useRouterContext();
   const [data, setData] = useState<ConnectedDashboardData | null>(null);
@@ -136,7 +61,7 @@ export function ConnectedDashboard() {
 
   const load = useCallback(async () => {
     if (!activeRouter) {
-      setData(MOCK_DASHBOARD_DATA);
+      setData(null);
       setLoading(false);
       return;
     }
@@ -150,8 +75,7 @@ export function ConnectedDashboard() {
       setData(payload.dashboard);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
-      // Fallback to mock data if no data was loaded previously
-      setData((prev) => prev || MOCK_DASHBOARD_DATA);
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -165,28 +89,54 @@ export function ConnectedDashboard() {
     }
   }, [load, activeRouter]);
 
+  if (!activeRouter) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center rounded-2xl border border-dashed bg-card p-12 text-center">
+        <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-4">
+          <Wifi className="size-7" />
+        </div>
+        <h3 className="text-lg font-semibold">No Router Connected</h3>
+        <p className="text-sm text-muted-foreground max-w-sm mt-1 mb-6">
+          Connect to a saved router or add a new MikroTik router / camp to view live metrics and manage sessions.
+        </p>
+        <Button render={<Link href="/settings/routers" />} nativeButton={false}>
+          <Plus className="mr-2 size-4" /> Go to Routers & Settings
+        </Button>
+      </div>
+    );
+  }
+
   if (loading && !data) {
     return <TableSkeleton rows={8} />;
   }
 
-  const displayData = data || MOCK_DASHBOARD_DATA;
-  const routerInfo = activeRouter || MOCK_ROUTER;
-  const isDemo = !activeRouter || !!error;
+  if (error && !data) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-5 text-sm text-destructive">
+          <div className="font-semibold flex items-center gap-2 text-base">
+            <AlertCircle className="size-5" />
+            <span>Unable to connect to router &quot;{activeRouter.sessionName}&quot;</span>
+          </div>
+          <p className="text-xs mt-1.5 opacity-90">{error}</p>
+          <div className="mt-4 flex gap-3">
+            <Button size="sm" variant="outline" onClick={() => void load()}>
+              Retry
+            </Button>
+            <Button size="sm" variant="outline" render={<Link href="/settings/routers" />} nativeButton={false}>
+              Manage Routers
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const displayData = data!;
+  const routerInfo = activeRouter;
 
   return (
     <div className="space-y-4">
-      {isDemo && (
-        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm text-yellow-800 dark:text-yellow-200">
-          <div className="font-semibold flex items-center gap-1.5">
-            <span>⚠️ Demo Mode Active</span>
-          </div>
-          <p className="text-xs mt-1 opacity-90">
-            {!activeRouter 
-              ? "No active router connected. Please go to Settings -> Routers to connect a MikroTik router. Showing simulated data."
-              : `Unable to connect to router "${activeRouter.sessionName}". Showing simulated/fallback data. Error: ${error}`}
-          </p>
-        </div>
-      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 dark:bg-card">
         <div className="inline-flex items-center gap-2 font-semibold">

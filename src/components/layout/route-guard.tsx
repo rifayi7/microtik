@@ -4,7 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useRouterContext } from "@/contexts/router-context";
 
-const connectedPaths = ["/hotspot", "/reports"];
+const connectedPaths = [
+  "/dashboard",
+  "/hotspot",
+  "/reports",
+  "/logs",
+  "/sessions",
+  "/vouchers",
+  "/profiles",
+  "/plans",
+  "/payments",
+  "/users",
+];
 
 export function RouteGuard({ children }: { children: React.ReactNode }) {
   const { isConnected, isReady } = useRouterContext();
@@ -38,7 +49,7 @@ export function RouteGuard({ children }: { children: React.ReactNode }) {
     }
 
     if (pathname === "/" || pathname === "/settings") {
-      router.replace("/dashboard");
+      router.replace(isConnected ? "/dashboard" : "/settings/routers");
     }
   }, [isReady, isConnected, pathname, router]);
 

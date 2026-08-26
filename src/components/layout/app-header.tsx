@@ -106,6 +106,7 @@ export function AppHeader({ title }: AppHeaderProps) {
             <AlertDialogAction
               onClick={() => {
                 localStorage.removeItem("is_logged_in");
+                localStorage.removeItem("hotspot-pro-active-router");
                 setShowSignoutModal(false);
                 routerNav.push("/login");
               }}

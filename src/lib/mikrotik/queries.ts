@@ -21,6 +21,7 @@ import {
 } from "./client";
 import type { ConnectionStatus, Router } from "@/lib/types";
 import { getDB } from "@/lib/db";
+import { CHARACTER_SETS } from "@/lib/constants";
 
 export interface ConnectionTestResult {
   success: boolean;
@@ -494,7 +495,7 @@ export async function generateHotspotUsers(
   params: {
     qty: number;
     server: string;
-    userMode: "username_equals_password" | "username_only";
+    userMode: "username_equals_password" | "username_and_password" | "username_only";
     nameLength: number;
     prefix: string;
     characters: string;
@@ -507,23 +508,29 @@ export async function generateHotspotUsers(
   const existingSet = new Set(existingUsers.map((u) => u.username.toLowerCase()));
 
   // 2. Generate unique codes
-  const newCodes: string[] = [];
-  const charPool = params.characters || "abcd2345";
+  const newItems: { username: string; password: string }[] = [];
+  const rawPool = params.characters || "5ab2c34d";
+  const charPool = CHARACTER_SETS[rawPool] || rawPool || "23456789abcdefghijkmnpqrstuvwxyz";
   const prefix = params.prefix || "";
   const lengthToGen = Math.max(1, params.nameLength - prefix.length);
 
+  const getRandomStr = (len: number) => {
+    let s = "";
+    for (let j = 0; j < len; j++) {
+      const randIndex = Math.floor(Math.random() * charPool.length);
+      s += charPool[randIndex];
+    }
+    return s;
+  };
+
   for (let i = 0; i < params.qty; i++) {
     let attempts = 0;
-    let code = "";
+    let username = "";
     do {
-      code = prefix;
-      for (let j = 0; j < lengthToGen; j++) {
-        const randIndex = Math.floor(Math.random() * charPool.length);
-        code += charPool[randIndex];
-      }
+      username = prefix + getRandomStr(lengthToGen);
       attempts++;
     } while (
-      (existingSet.has(code.toLowerCase()) || newCodes.includes(code)) &&
+      (existingSet.has(username.toLowerCase()) || newItems.some((item) => item.username.toLowerCase() === username.toLowerCase())) &&
       attempts < 1000
     );
 
@@ -533,17 +540,26 @@ export async function generateHotspotUsers(
       );
     }
 
-    newCodes.push(code);
+    let password = "";
+    if (params.userMode === "username_equals_password") {
+      password = username;
+    } else if (params.userMode === "username_and_password") {
+      password = getRandomStr(lengthToGen);
+    } else if (params.userMode === "username_only") {
+      password = "";
+    }
+
+    newItems.push({ username, password });
     // Keep set updated in real-time to avoid duplicate generation inside the loop
-    existingSet.add(code.toLowerCase());
+    existingSet.add(username.toLowerCase());
   }
 
   // 3. Write all generated users to the router
   await withMikrotikClient(toConnectionParams(config), async (client) => {
-    for (const code of newCodes) {
+    for (const item of newItems) {
       const queries = [
-        `=name=${code}`,
-        `=password=${params.userMode === "username_equals_password" ? code : ""}`,
+        `=name=${item.username}`,
+        `=password=${item.password}`,
         `=profile=${params.profile || "default"}`,
       ];
       if (params.server && params.server !== "all") {
@@ -556,7 +572,7 @@ export async function generateHotspotUsers(
     }
   });
 
-  return newCodes;
+  return newItems.map((item) => item.username);
 }
 
 /**

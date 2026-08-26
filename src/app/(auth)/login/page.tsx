@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, Wifi } from "lucide-react";
 import { toast } from "sonner";
-import { APP_DESCRIPTION, APP_NAME } from "@/lib/constants";
+import { APP_NAME } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,12 @@ export default function LoginPage() {
     if (username?.trim().toLowerCase() === "admin" && password === "admin123") {
       toast.success("Welcome back!");
       localStorage.setItem("is_logged_in", "true");
-      router.push("/dashboard");
+      const activeRouterId = localStorage.getItem("hotspot-pro-active-router");
+      if (activeRouterId) {
+        router.push("/dashboard");
+      } else {
+        router.push("/settings/routers");
+      }
     } else {
       setError("Invalid username or password");
       setLoading(false);
@@ -46,12 +51,6 @@ export default function LoginPage() {
             <Wifi className="size-5" />
           </div>
           <span className="text-xl font-semibold">{APP_NAME}</span>
-        </div>
-        <div className="space-y-4">
-          <h1 className="text-3xl font-bold leading-tight">
-            Manage your MikroTik hotspot network from one dashboard
-          </h1>
-          <p className="text-primary-foreground/80 max-w-md">{APP_DESCRIPTION}</p>
         </div>
         <p className="text-sm text-primary-foreground/60">
           Router management · Vouchers · Live sessions · Reports

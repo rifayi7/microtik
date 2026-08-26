@@ -100,7 +100,9 @@ export function AppSidebar() {
               onValueChange={(value) => value && void handleRouterChange(value)}
             >
               <SelectTrigger className="mt-4 w-full bg-white dark:bg-card">
-                <SelectValue placeholder="Select router" />
+                <SelectValue placeholder="Select router">
+                  {activeRouter?.sessionName || "Select router"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {routers.map((item) => (
@@ -214,6 +216,7 @@ export function AppSidebar() {
             <AlertDialogAction
               onClick={() => {
                 localStorage.removeItem("is_logged_in");
+                localStorage.removeItem("hotspot-pro-active-router");
                 setShowSignoutModal(false);
                 routerNav.push("/login");
               }}

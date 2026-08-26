@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { useRouterContext } from "@/contexts/router-context";
 import { fetchForRouter } from "@/lib/api/client";
+import { CHARACTER_OPTIONS } from "@/lib/constants";
 import type { HotspotUser } from "@/lib/types";
 import { HotspotTabs } from "@/components/hotspot/hotspot-tabs";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ export function HotspotUsersView() {
   const [genUserMode, setGenUserMode] = useState("username_equals_password");
   const [genNameLength, setGenNameLength] = useState("8");
   const [genPrefix, setGenPrefix] = useState("");
-  const [genCharacters, setGenCharacters] = useState("abcd2345");
+  const [genCharacters, setGenCharacters] = useState("5ab2c34d");
   const [genProfile, setGenProfile] = useState("default");
   const [genComment, setGenComment] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -424,7 +425,7 @@ export function HotspotUsersView() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="username_equals_password">Username = Password</SelectItem>
-                    <SelectItem value="username_only">Username only</SelectItem>
+                    <SelectItem value="username_and_password">Username &amp; Password</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -454,13 +455,18 @@ export function HotspotUsersView() {
 
               <div className="grid gap-2">
                 <Label htmlFor="genCharacters">Characters</Label>
-                <Input
-                  id="genCharacters"
-                  placeholder="abcd2345"
-                  value={genCharacters}
-                  onChange={(e) => setGenCharacters(e.target.value)}
-                  required
-                />
+                <Select value={genCharacters} onValueChange={(v) => v && setGenCharacters(v)}>
+                  <SelectTrigger id="genCharacters">
+                    <SelectValue placeholder="Select characters" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CHARACTER_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="grid gap-2">
