@@ -65,7 +65,6 @@ export function HotspotUsersView() {
   const [genQty, setGenQty] = useState("1");
   const [genServer, setGenServer] = useState("all");
   const [genUserMode, setGenUserMode] = useState("username_equals_password");
-  const [genNameLength, setGenNameLength] = useState("8");
   const [genPrefix, setGenPrefix] = useState("");
   const [genCharacters, setGenCharacters] = useState("5ab2c34d");
   const [genProfile, setGenProfile] = useState("default");
@@ -153,17 +152,13 @@ export function HotspotUsersView() {
       return;
     }
     const qtyNum = Number(genQty);
-    const lenNum = Number(genNameLength);
+    const lenNum = 8;
     if (isNaN(qtyNum) || qtyNum <= 0) {
       toast.error("Quantity must be greater than 0");
       return;
     }
-    if (isNaN(lenNum) || lenNum <= 0) {
-      toast.error("Name length must be greater than 0");
-      return;
-    }
-    if (genPrefix.length >= lenNum) {
-      toast.error("Prefix length must be less than Name Length");
+    if (genPrefix.length >= 8) {
+      toast.error("Prefix length must be less than 8");
       return;
     }
     if (!genCharacters) {
@@ -435,11 +430,11 @@ export function HotspotUsersView() {
                   <Label htmlFor="genNameLength">Name Length</Label>
                   <Input
                     id="genNameLength"
-                    type="number"
-                    placeholder="8"
-                    value={genNameLength}
-                    onChange={(e) => setGenNameLength(e.target.value)}
-                    required
+                    type="text"
+                    value="8"
+                    disabled
+                    readOnly
+                    className="bg-muted/50 cursor-not-allowed text-muted-foreground font-medium"
                   />
                 </div>
                 <div className="grid gap-2">
