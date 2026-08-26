@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
+import { verifyPassword, hashPassword, needsRehash } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
@@ -19,8 +20,8 @@ export async function POST(request: Request) {
 
     const database = await getDB();
     const result = await database.execute({
-      sql: "SELECT id, username, password, display_name, role, camp_name FROM sales_persons WHERE username = ? AND password = ?",
-      args: [username.trim(), password.trim()],
+      sql: "SELECT id, username, password, display_name, role, camp_name FROM sales_persons WHERE username = ?",
+      args: [username.trim()],
     });
 
     if (result.rows.length === 0) {
@@ -47,6 +48,31 @@ export async function POST(request: Request) {
     }
 
     const row = result.rows[0];
+    const storedPassword = String(row.password || "");
+
+    // Securely verify password (supports modern scrypt hash and legacy fallback)
+    const isPasswordValid = verifyPassword(password.trim(), storedPassword);
+
+    if (!isPasswordValid) {
+      return NextResponse.json(
+        { success: false, error: "Invalid operator credentials" },
+        { status: 401 }
+      );
+    }
+
+    // Auto-upgrade legacy plain-text password to scrypt hash on first successful login
+    if (needsRehash(storedPassword)) {
+      try {
+        const secureHash = hashPassword(password.trim());
+        await database.execute({
+          sql: "UPDATE sales_persons SET password = ? WHERE id = ?",
+          args: [secureHash, Number(row.id)],
+        });
+      } catch (rehashErr) {
+        console.warn("Failed to auto-upgrade password hash:", rehashErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       user: {

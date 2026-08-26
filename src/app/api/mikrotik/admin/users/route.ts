@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
+import { hashPassword } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,7 @@ export async function GET() {
       id: Number(row.id),
       username: String(row.username),
       displayName: String(row.display_name || row.username),
-      password: String(row.password),
+      password: "••••••••",
       role: String(row.role || "salesperson"),
       campName: String(row.camp_name || "All Camps"),
       createdAt: String(row.created_at || ""),
@@ -51,9 +52,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Username already exists" }, { status: 400 });
     }
 
+    const hashedPassword = hashPassword(password.trim());
+
     const insertResult = await database.execute({
       sql: "INSERT INTO sales_persons (username, display_name, password, role, camp_name) VALUES (?, ?, ?, ?, ?)",
-      args: [username.trim(), (displayName && displayName.trim()) || username.trim(), password.trim(), role || "salesperson", campName || "All Camps"],
+      args: [username.trim(), (displayName && displayName.trim()) || username.trim(), hashedPassword, role || "salesperson", campName || "All Camps"],
     });
 
     return NextResponse.json({
@@ -118,6 +121,8 @@ export async function PUT(request: Request) {
       }
     }
 
+    const hashedPassword = password && password.trim() ? hashPassword(password.trim()) : null;
+
     await database.execute({
       sql: `
         UPDATE sales_persons 
@@ -131,7 +136,7 @@ export async function PUT(request: Request) {
       args: [
         newUsername,
         displayName && displayName.trim() ? displayName.trim() : null,
-        password && password.trim() ? password.trim() : null,
+        hashedPassword,
         role ?? null,
         campName ?? null,
         Number(id),
