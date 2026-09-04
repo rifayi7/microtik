@@ -72,9 +72,12 @@ export async function GET(request: Request) {
       });
     }
 
-    // Merge with env-configured routers if any (env routers default to verified, only for Super Admin or when matching)
+    // Merge with env-configured routers if any (only for superadmin when no company/camp restrictions exist)
     let envRouters: any[] = [];
-    if (isMikrotikConfigured() && (!companyFilter || !companyFilter.trim())) {
+    const hasCompanyRestriction = Boolean(companyFilter && companyFilter.trim());
+    const hasCampRestriction = Boolean(authUser && authUser.allowedCamps && authUser.allowedCamps.length > 0);
+
+    if (isMikrotikConfigured() && !hasCompanyRestriction && !hasCampRestriction) {
       const configs = getConfiguredRouters();
       envRouters = configs.map((config) => ({
         id: config.id,
@@ -98,11 +101,20 @@ export async function GET(request: Request) {
       }));
     }
 
-    const mergedRouters = [...dbRouters];
+    let mergedRouters = [...dbRouters];
     for (const envR of envRouters) {
       if (!mergedRouters.some((r) => r.id === envR.id)) {
         mergedRouters.push(envR);
       }
+    }
+
+    // Final safety filter for allowedCamps
+    if (hasCampRestriction && authUser?.allowedCamps) {
+      const allowedLower = authUser.allowedCamps.map((c) => c.toLowerCase());
+      mergedRouters = mergedRouters.filter((r) => {
+        const campLower = (r.camp || r.sessionName || "").toLowerCase();
+        return allowedLower.includes(campLower);
+      });
     }
 
     return NextResponse.json({ routers: mergedRouters, configured: true });
