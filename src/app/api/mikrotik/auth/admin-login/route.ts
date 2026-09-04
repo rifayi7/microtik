@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
-import { verifyPassword, hashPassword, needsRehash } from "@/lib/auth-crypto";
+import { verifyPassword, hashPassword, needsRehash, signJwt } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
@@ -24,16 +24,28 @@ export async function POST(request: Request) {
 
     // 1. Super Admin Authentication Check
     if (trimmedUser.toLowerCase() === "admin" && trimmedPass === "admin123") {
+      const user = {
+        id: 0,
+        username: "admin",
+        displayName: "Super Administrator",
+        role: "superadmin" as const,
+        companyName: null,
+        allowedCamps: [],
+      };
+
+      const token = signJwt({
+        sub: user.username,
+        userId: user.id,
+        displayName: user.displayName,
+        role: user.role,
+        companyName: user.companyName,
+        allowedCamps: user.allowedCamps,
+      });
+
       return NextResponse.json({
         success: true,
-        user: {
-          id: 0,
-          username: "admin",
-          displayName: "Super Administrator",
-          role: "superadmin",
-          companyName: null,
-          allowedCamps: [],
-        },
+        user,
+        token,
       });
     }
 
@@ -83,16 +95,28 @@ export async function POST(request: Request) {
     });
     const companyCamps = campsResult.rows.map((r) => String(r.name));
 
+    const user = {
+      id: Number(row.id),
+      username: String(row.username),
+      displayName: compName + " Admin",
+      role: "company_admin" as const,
+      companyName: compName,
+      allowedCamps: companyCamps,
+    };
+
+    const token = signJwt({
+      sub: user.username,
+      userId: user.id,
+      displayName: user.displayName,
+      role: user.role,
+      companyName: user.companyName,
+      allowedCamps: user.allowedCamps,
+    });
+
     return NextResponse.json({
       success: true,
-      user: {
-        id: Number(row.id),
-        username: String(row.username),
-        displayName: compName + " Admin",
-        role: "company_admin",
-        companyName: compName,
-        allowedCamps: companyCamps,
-      },
+      user,
+      token,
     });
   } catch (error) {
     return mikrotikErrorResponse(error, "Admin login authentication failed");

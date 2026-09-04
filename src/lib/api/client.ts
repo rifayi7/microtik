@@ -13,12 +13,18 @@ export async function fetchMikrotikApi<T>(
   path: string,
   init?: RequestInit
 ): Promise<T & ApiEnvelope> {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...((init?.headers as Record<string, string>) || {}),
+  };
+
   const response = await fetch(path, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
 
   const payload = (await response.json()) as T & ApiEnvelope;

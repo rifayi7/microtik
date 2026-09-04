@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
+import { extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,7 @@ async function handleRequest(request: Request) {
   try {
     const db = await getDB();
     const url = new URL(request.url);
+    const authUser = extractAuthToken(request);
 
     let routerId = url.searchParams.get("routerId");
     let search = url.searchParams.get("search");
@@ -23,6 +25,11 @@ async function handleRequest(request: Request) {
     let salesperson = url.searchParams.get("salesperson");
     let salesPersonId = url.searchParams.get("salesPersonId");
     let company = url.searchParams.get("company");
+
+    // If company admin / salesperson is authenticated via JWT, strictly enforce their company scope
+    if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
+      company = authUser.companyName;
+    }
 
     if (request.method === "POST") {
       try {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
-import { verifyPassword, hashPassword, needsRehash } from "@/lib/auth-crypto";
+import { verifyPassword, hashPassword, needsRehash, signJwt } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
@@ -30,16 +30,29 @@ export async function POST(request: Request) {
         (username.trim() === "Fasil@2020" && password.trim() === "1234") ||
         (username.trim() === "Rifai" && password.trim() === "3421")
       ) {
+        const user = {
+          id: 0,
+          username: username.trim(),
+          displayName: username.trim() === "Fasil@2020" ? "Fasil" : "Rifai",
+          role: "salesperson" as const,
+          campName: "All Camps",
+          companyName: "",
+          allowedCamps: [] as string[],
+        };
+
+        const token = signJwt({
+          sub: user.username,
+          userId: user.id,
+          displayName: user.displayName,
+          role: user.role,
+          companyName: user.companyName,
+          allowedCamps: user.allowedCamps,
+        });
+
         return NextResponse.json({
           success: true,
-          user: {
-            username: username.trim(),
-            displayName: username.trim() === "Fasil@2020" ? "Fasil" : "Rifai",
-            role: "salesperson",
-            campName: "All Camps",
-            companyName: "",
-            allowedCamps: [],
-          },
+          user,
+          token,
         });
       }
 
@@ -86,17 +99,29 @@ export async function POST(request: Request) {
       allowedCamps = [String(row.camp_name)];
     }
 
+    const user = {
+      id: Number(row.id),
+      username: String(row.username),
+      displayName: String(row.display_name || row.username),
+      role: String(row.role || "salesperson"),
+      campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "All Camps")),
+      companyName: String(row.company_name || ""),
+      allowedCamps,
+    };
+
+    const token = signJwt({
+      sub: user.username,
+      userId: user.id,
+      displayName: user.displayName,
+      role: user.role,
+      companyName: user.companyName,
+      allowedCamps: user.allowedCamps,
+    });
+
     return NextResponse.json({
       success: true,
-      user: {
-        id: Number(row.id),
-        username: String(row.username),
-        displayName: String(row.display_name || row.username),
-        role: String(row.role || "salesperson"),
-        campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "All Camps")),
-        companyName: String(row.company_name || ""),
-        allowedCamps,
-      },
+      user,
+      token,
     });
   } catch (error) {
     return mikrotikErrorResponse(error, "Authentication check failed");

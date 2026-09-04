@@ -3,14 +3,21 @@ import { getDB } from "@/lib/db";
 import { getConfiguredRouters, isMikrotikConfigured } from "@/lib/mikrotik/config";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
 import { fetchHotspotUsersForRouter, testRouterConnection } from "@/lib/mikrotik/queries";
+import { extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
+    const authUser = extractAuthToken(request);
     const verifiedOnly = url.searchParams.get("verified") === "true";
-    const companyFilter = url.searchParams.get("company");
+    let companyFilter = url.searchParams.get("company");
+
+    // Strictly enforce company if JWT token represents a company user
+    if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
+      companyFilter = authUser.companyName;
+    }
     const database = await getDB();
     
     // Fetch camps for company if filtered
@@ -97,6 +104,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const authUser = extractAuthToken(request);
     const body = await request.json();
     const {
       sessionName,
@@ -116,7 +124,10 @@ export async function POST(request: Request) {
       liveReport,
     } = body;
 
-    const assignedCompany = (companyName || company || "").trim() || null;
+    let assignedCompany = (companyName || company || "").trim() || null;
+    if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
+      assignedCompany = authUser.companyName;
+    }
 
     if (!sessionName || !host || !port || !username) {
       return NextResponse.json(

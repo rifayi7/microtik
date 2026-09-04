@@ -1,14 +1,22 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
+import { extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
+    const authUser = extractAuthToken(request);
+
     const salespersonParam = url.searchParams.get("salesperson");
     const salesPersonIdParam = url.searchParams.get("salesPersonId");
-    const companyParam = url.searchParams.get("company");
+    let companyParam = url.searchParams.get("company");
+
+    // Strictly enforce company if JWT token represents a company user
+    if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
+      companyParam = authUser.companyName;
+    }
     const database = await getDB();
     
     // Resolve user ID if provided

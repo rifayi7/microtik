@@ -227,6 +227,7 @@ export function AppSidebar() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
+                localStorage.removeItem("auth_token");
                 localStorage.removeItem("is_logged_in");
                 localStorage.removeItem("admin_user_role");
                 localStorage.removeItem("admin_user_name");

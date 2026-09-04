@@ -30,6 +30,7 @@ export default function LoginPage() {
     try {
       const response = await fetchMikrotikApi<{
         success: boolean;
+        token?: string;
         user?: {
           id: number;
           username: string;
@@ -46,6 +47,9 @@ export default function LoginPage() {
 
       if (response.success && response.user) {
         toast.success(`Welcome back, ${response.user.displayName}!`);
+        if (response.token) {
+          localStorage.setItem("auth_token", response.token);
+        }
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("admin_user_role", response.user.role);
         localStorage.setItem("admin_user_name", response.user.username);
