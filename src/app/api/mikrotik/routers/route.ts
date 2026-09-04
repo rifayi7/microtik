@@ -10,14 +10,25 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const verifiedOnly = url.searchParams.get("verified") === "true";
+    const companyFilter = url.searchParams.get("company");
     const database = await getDB();
     
+    // Fetch camps for company if filtered
+    let companyCampNames: string[] = [];
+    if (companyFilter && companyFilter.trim()) {
+      const campRes = await database.execute({
+        sql: "SELECT name FROM camps WHERE LOWER(company_name) = LOWER(?)",
+        args: [companyFilter.trim()],
+      });
+      companyCampNames = campRes.rows.map((r) => String(r.name).toLowerCase());
+    }
+
     const query = verifiedOnly 
       ? "SELECT * FROM routers WHERE verified_status = 1" 
       : "SELECT * FROM routers";
     const result = await database.execute(query);
     
-    const dbRouters = result.rows.map((row) => ({
+    let dbRouters = result.rows.map((row) => ({
       id: String(row.id),
       sessionName: String(row.sessionName),
       host: String(row.host),
@@ -37,6 +48,13 @@ export async function GET(request: Request) {
       status: Number(row.verified_status) === 1 ? "offline" : "unknown",
       verified: Number(row.verified_status) === 1,
     }));
+
+    if (companyFilter && companyFilter.trim()) {
+      dbRouters = dbRouters.filter((r) => {
+        const campLower = (r.camp || r.sessionName || "").toLowerCase();
+        return companyCampNames.includes(campLower);
+      });
+    }
 
     // Merge with env-configured routers if any (env routers default to verified)
     let envRouters: any[] = [];
