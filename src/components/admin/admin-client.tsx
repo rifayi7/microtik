@@ -208,12 +208,16 @@ export function AdminClient() {
     void loadData();
   }, [loadData]);
 
-  // Handle salesperson camp options filtered by company
-  const availableCampsForSelectedCompany = newUserCompany
-    ? campsWithCompany
-        .filter((c) => !c.companyName || c.companyName.toLowerCase() === newUserCompany.toLowerCase())
-        .map((c) => c.name)
-    : registeredCamps;
+  // Handle salesperson camp options filtered by company (deduplicate camp names)
+  const availableCampsForSelectedCompany = Array.from(
+    new Set(
+      newUserCompany
+        ? campsWithCompany
+            .filter((c) => !c.companyName || c.companyName.toLowerCase() === newUserCompany.toLowerCase())
+            .map((c) => c.name)
+        : registeredCamps
+    )
+  );
 
   const handleOpenAddUser = () => {
     setEditingUser(null);
@@ -643,9 +647,9 @@ export function AdminClient() {
                       <TableCell>
                         {user.allowedCamps && user.allowedCamps.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
-                            {user.allowedCamps.map((camp) => (
+                            {Array.from(new Set(user.allowedCamps)).map((camp, idx) => (
                               <span
-                                key={camp}
+                                key={`${camp}-${idx}`}
                                 className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300"
                               >
                                 <Building2 className="size-3" />
@@ -830,14 +834,17 @@ export function AdminClient() {
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-1">
               Select Camp:
             </span>
-            {(selectedCompanyFilter === "ALL"
-              ? registeredCamps
-              : campsWithCompany
-                  .filter((c) => !c.companyName || c.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase())
-                  .map((c) => c.name)
-            ).map((camp) => (
+            {Array.from(
+              new Set(
+                selectedCompanyFilter === "ALL"
+                  ? registeredCamps
+                  : campsWithCompany
+                      .filter((c) => !c.companyName || c.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase())
+                      .map((c) => c.name)
+              )
+            ).map((camp, idx) => (
               <button
-                key={camp}
+                key={`${camp}-${idx}`}
                 type="button"
                 onClick={() => setActivePricingCamp(camp)}
                 className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all ${
