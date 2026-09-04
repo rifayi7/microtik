@@ -10,15 +10,53 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const authUser = extractAuthToken(request);
+    let authUser = extractAuthToken(request);
     const verifiedOnly = url.searchParams.get("verified") === "true";
     let companyFilter = url.searchParams.get("company");
+    const salespersonParam = url.searchParams.get("salesperson");
+    const salesPersonIdParam = url.searchParams.get("salesPersonId");
 
-    // Strictly enforce company if JWT token represents a company user
+    const database = await getDB();
+
+    // If no JWT token was provided in header, resolve salesperson permissions from database by ID or username
+    if (!authUser && (salespersonParam || salesPersonIdParam)) {
+      const spRes = await database.execute({
+        sql: "SELECT id, username, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE CAST(id AS TEXT) = ? OR username = ? OR display_name = ?",
+        args: [
+          salesPersonIdParam ? String(salesPersonIdParam) : "-1",
+          salespersonParam ? String(salespersonParam).trim() : "-1",
+          salespersonParam ? String(salespersonParam).trim() : "-1",
+        ],
+      });
+
+      if (spRes.rows.length > 0) {
+        const row = spRes.rows[0];
+        let allowedCamps: string[] = [];
+        if (row.allowed_camps) {
+          try {
+            allowedCamps = JSON.parse(String(row.allowed_camps));
+          } catch {
+            allowedCamps = [String(row.allowed_camps)];
+          }
+        } else if (row.camp_name && row.camp_name !== "All Camps") {
+          allowedCamps = [String(row.camp_name)];
+        }
+
+        authUser = {
+          sub: String(row.username),
+          userId: Number(row.id),
+          displayName: String(row.display_name || row.username),
+          role: String(row.role || "salesperson"),
+          companyName: row.company_name ? String(row.company_name) : null,
+          allowedCamps,
+        };
+      }
+    }
+
+    // Strictly enforce company if JWT token or resolved user represents a company user
     if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
       companyFilter = authUser.companyName;
     }
-    const database = await getDB();
     
     // Fetch camps for company if filtered
     let companyCampNames: string[] = [];
