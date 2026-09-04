@@ -1011,8 +1011,8 @@ export function AdminClient() {
                 <Label htmlFor="companySelect">Assigned Company</Label>
                 <Select
                   value={newUserCompany || "NONE"}
-                  onValueChange={(v) => {
-                    const selectedComp = v === "NONE" ? "" : v;
+                  onValueChange={(v: string | null) => {
+                    const selectedComp = !v || v === "NONE" ? "" : v;
                     setNewUserCompany(selectedComp);
                     setNewUserAllowedCamps([]); // Clear previously selected camps when company changes
                   }}

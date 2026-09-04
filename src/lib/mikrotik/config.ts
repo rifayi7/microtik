@@ -68,8 +68,8 @@ function parseRoutersJson(raw: string): MikrotikRouterConfig[] {
 
 export function getMikrotikTimeout(): number {
   const raw = process.env.MIKROTIK_TIMEOUT;
-  const timeout = raw ? Number(raw) : 10;
-  return Number.isFinite(timeout) && timeout > 0 ? timeout : 10;
+  const timeout = raw ? Number(raw) : 15;
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : 15;
 }
 
 export function getConfiguredRouters(): MikrotikRouterConfig[] {

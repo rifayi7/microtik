@@ -432,6 +432,190 @@ export async function disconnectHotspotSession(
   });
 }
 
+export interface ResetHotspotUserResult {
+  userExists: boolean;
+  disconnectedCount: number;
+  macCleared: boolean;
+  hadBoundMac: boolean;
+  routerName?: string;
+}
+
+export async function resetHotspotActiveSessionByUsername(
+  config: MikrotikRouterConfig,
+  username: string
+): Promise<ResetHotspotUserResult> {
+  return await withMikrotikClient(toConnectionParams(config), async (client) => {
+    const cleanUser = username.trim();
+    let disconnectedCount = 0;
+    let macCleared = false;
+    let hadBoundMac = false;
+    let userExists = false;
+    const capturedMacs: string[] = [];
+
+    // 1. Terminate all active HotSpot sessions for this user (with case-insensitive fallback)
+    try {
+      let activeRecords = (await client.write("/ip/hotspot/active/print", [
+        `?user=${cleanUser}`,
+      ])) as RouterOSRecord[];
+
+      if (!activeRecords || activeRecords.length === 0) {
+        const allActives = (await client.write("/ip/hotspot/active/print")) as RouterOSRecord[];
+        activeRecords = allActives.filter(
+          (a) => (a.user || "").toLowerCase() === cleanUser.toLowerCase()
+        );
+      }
+
+      if (activeRecords && activeRecords.length > 0) {
+        for (const record of activeRecords) {
+          const sessionId = record[".id"];
+          const mac = record["mac-address"];
+          if (mac && typeof mac === "string" && mac.trim()) {
+            capturedMacs.push(mac.trim());
+          }
+          if (sessionId) {
+            await client.write("/ip/hotspot/active/remove", [`=.id=${sessionId}`]);
+            disconnectedCount++;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Could not remove active session:", e);
+    }
+
+    // 2. Query and clear MAC-address binding from /ip/hotspot/user (with case-insensitive fallback)
+    try {
+      let userRecords = (await client.write("/ip/hotspot/user/print", [
+        `?name=${cleanUser}`,
+      ])) as RouterOSRecord[];
+
+      if (!userRecords || userRecords.length === 0) {
+        const allUsers = (await client.write("/ip/hotspot/user/print")) as RouterOSRecord[];
+        userRecords = allUsers.filter(
+          (u) => (u.name || "").toLowerCase() === cleanUser.toLowerCase()
+        );
+      }
+
+      if (userRecords && userRecords.length > 0) {
+        userExists = true;
+        for (const uRecord of userRecords) {
+          const userId = uRecord[".id"];
+          const userMac = uRecord["mac-address"];
+          if (userMac && typeof userMac === "string" && userMac.trim()) {
+            capturedMacs.push(userMac.trim());
+          }
+
+          const isMacBound = Boolean(
+            userMac &&
+            userMac.trim() !== "" &&
+            userMac.trim() !== "00:00:00:00:00:00"
+          );
+
+          if (isMacBound) {
+            hadBoundMac = true;
+          }
+
+          if (userId) {
+            try {
+              // Setting mac-address=00:00:00:00:00:00 in RouterOS immediately clears and removes the MAC binding
+              await client.write("/ip/hotspot/user/set", [
+                `=.id=${userId}`,
+                `=mac-address=00:00:00:00:00:00`,
+              ]);
+
+              // Verify the MAC is indeed cleared in RouterOS
+              const verifyUser = (await client.write("/ip/hotspot/user/print", [
+                `?.id=${userId}`,
+              ])) as RouterOSRecord[];
+
+              const isNowCleared =
+                !verifyUser[0]?.["mac-address"] ||
+                verifyUser[0]?.["mac-address"] === "00:00:00:00:00:00";
+
+              if (isNowCleared && hadBoundMac) {
+                macCleared = true;
+              }
+            } catch (errSet) {
+              console.warn("Could not set user mac-address=00:00:00:00:00:00:", errSet);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Could not query or clear user records:", e);
+    }
+
+    // 3. Purge matching cookies from /ip/hotspot/cookie (by user name and captured MACs)
+    try {
+      const cookieRecords = (await client.write("/ip/hotspot/cookie/print", [
+        `?user=${cleanUser}`,
+      ])) as RouterOSRecord[];
+
+      if (cookieRecords && cookieRecords.length > 0) {
+        for (const cRecord of cookieRecords) {
+          const cookieId = cRecord[".id"];
+          if (cookieId) {
+            await client.write("/ip/hotspot/cookie/remove", [`=.id=${cookieId}`]);
+          }
+        }
+      }
+
+      for (const mac of capturedMacs) {
+        try {
+          const macCookies = (await client.write("/ip/hotspot/cookie/print", [
+            `?mac-address=${mac}`,
+          ])) as RouterOSRecord[];
+          for (const mc of macCookies) {
+            if (mc[".id"]) {
+              await client.write("/ip/hotspot/cookie/remove", [`=.id=${mc[".id"]}`]);
+            }
+          }
+        } catch {}
+      }
+    } catch {
+      // Cookies may not be enabled or present
+    }
+
+    // 4. Purge host entries from /ip/hotspot/host to drop cached authorization
+    try {
+      const hostRecords = (await client.write("/ip/hotspot/host/print", [
+        `?user=${cleanUser}`,
+      ])) as RouterOSRecord[];
+
+      if (hostRecords && hostRecords.length > 0) {
+        for (const hRecord of hostRecords) {
+          const hostId = hRecord[".id"];
+          if (hostId) {
+            await client.write("/ip/hotspot/host/remove", [`=.id=${hostId}`]);
+          }
+        }
+      }
+
+      for (const mac of capturedMacs) {
+        try {
+          const macHosts = (await client.write("/ip/hotspot/host/print", [
+            `?mac-address=${mac}`,
+          ])) as RouterOSRecord[];
+          for (const mh of macHosts) {
+            if (mh[".id"]) {
+              await client.write("/ip/hotspot/host/remove", [`=.id=${mh[".id"]}`]);
+            }
+          }
+        } catch {}
+      }
+    } catch {
+      // Host table purge is optional
+    }
+
+    return {
+      userExists,
+      disconnectedCount,
+      macCleared,
+      hadBoundMac,
+      routerName: config.camp || config.sessionName,
+    };
+  });
+}
+
 export async function updateOrCreateHotspotUser(
   config: MikrotikRouterConfig,
   username: string,

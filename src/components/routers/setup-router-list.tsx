@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
+  Loader2,
   PlugZap,
   Plus,
   Settings,
@@ -153,10 +154,13 @@ export function SetupRouterList() {
                                 size="icon-xs"
                                 disabled={connectingId === router.id}
                                 onClick={() => void handleConnect(router)}
+                                title={connectingId === router.id ? "Connecting..." : "Connect Router"}
                               >
-                                <PlugZap
-                                  className={`size-4 ${connectingId === router.id ? "animate-pulse" : ""}`}
-                                />
+                                {connectingId === router.id ? (
+                                  <Loader2 className="size-4 animate-spin text-[#4A60D6]" />
+                                ) : (
+                                  <PlugZap className="size-4 text-emerald-600 hover:text-emerald-700" />
+                                )}
                               </Button>
                             </div>
                           </TableCell>
@@ -237,8 +241,17 @@ export function SetupRouterList() {
                                 disabled={connectingId === router.id}
                                 onClick={() => void handleConnect(router)}
                               >
-                                <PlugZap className={`mr-1 size-3.5 ${connectingId === router.id ? "animate-pulse" : ""}`} />
-                                Verify
+                                {connectingId === router.id ? (
+                                  <>
+                                    <Loader2 className="mr-1 size-3.5 animate-spin text-amber-600" />
+                                    Verifying...
+                                  </>
+                                ) : (
+                                  <>
+                                    <PlugZap className="mr-1 size-3.5" />
+                                    Verify
+                                  </>
+                                )}
                               </Button>
                             </div>
                           </TableCell>

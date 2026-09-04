@@ -143,6 +143,9 @@ export async function GET(request: Request) {
       userAllowedCamps = authUser.allowedCamps.map((c) => c.toLowerCase());
     }
 
+    const targetIdVal = targetUserId ? Number(targetUserId) : -1;
+    const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
+
     // 2. Get sales counts and revenue amounts per router/camp
     let effectiveCampFilters = companyCampNames;
     if (userAllowedCamps.length > 0) {
@@ -151,11 +154,35 @@ export async function GET(request: Request) {
         : userAllowedCamps;
     }
 
-    const routerFilterClause = effectiveCampFilters.length > 0
-      ? `WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')})`
-      : ((companyParam && companyParam.trim()) || userAllowedCamps.length > 0 ? "WHERE 1=0" : "");
+    let routerFilterClause = "";
+    let routerFilterArgs: any[] = [];
 
-    const routerFilterArgs = effectiveCampFilters.length > 0 ? effectiveCampFilters : [];
+    if (isFilteredBySalesperson) {
+      const campCondition = effectiveCampFilters.length > 0
+        ? `LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')})`
+        : "1=0";
+      
+      // Allow currently assigned camps OR any router where the salesperson had redeemed vouchers
+      routerFilterClause = `WHERE (${campCondition} OR r.id IN (
+        SELECT router_id FROM vouchers 
+        WHERE status = 'redeemed' AND (
+          (sales_person_id IS NOT NULL AND sales_person_id = ?)
+          OR (sold_by IS NOT NULL AND (sold_by = ? OR sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
+        )
+      ))`;
+      routerFilterArgs = [
+        ...effectiveCampFilters,
+        targetIdVal,
+        targetUserVal,
+        targetIdVal,
+        targetUserVal,
+      ];
+    } else {
+      routerFilterClause = effectiveCampFilters.length > 0
+        ? `WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')})`
+        : ((companyParam && companyParam.trim()) || userAllowedCamps.length > 0 ? "WHERE 1=0" : "");
+      routerFilterArgs = effectiveCampFilters.length > 0 ? effectiveCampFilters : [];
+    }
 
     const salesSql = isFilteredBySalesperson
       ? `
@@ -209,9 +236,6 @@ export async function GET(request: Request) {
         ${routerFilterClause}
         GROUP BY r.id
       `;
-
-    const targetIdVal = targetUserId ? Number(targetUserId) : -1;
-    const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
 
     const queryArgs = isFilteredBySalesperson
       ? [targetIdVal, targetUserVal, targetIdVal, targetUserVal, ...routerFilterArgs]
