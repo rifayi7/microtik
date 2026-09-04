@@ -203,7 +203,7 @@ export function AdminClient() {
     setNewDisplayName("");
     setNewPassword("");
     setNewUserRole("salesperson");
-    setNewUserCompany(companiesList[0] || "");
+    setNewUserCompany("");
     setNewUserAllowedCamps([]);
     setUserModalOpen(true);
   };
@@ -214,7 +214,7 @@ export function AdminClient() {
     setNewDisplayName(user.displayName || user.username);
     setNewPassword("");
     setNewUserRole(user.role);
-    setNewUserCompany(user.companyName || companiesList[0] || "");
+    setNewUserCompany(user.companyName || "");
     setNewUserAllowedCamps(user.allowedCamps || (user.campName && user.campName !== "All Camps" ? [user.campName] : []));
     setUserModalOpen(true);
   };
@@ -305,7 +305,7 @@ export function AdminClient() {
     setEditingCompanyAdmin(null);
     setAdminUsername("");
     setAdminPassword("");
-    setAdminCompany(companiesList[0] || "");
+    setAdminCompany("");
     setCompanyAdminModalOpen(true);
   };
 
@@ -479,6 +479,13 @@ export function AdminClient() {
 
   return (
     <div className="space-y-6">
+      {/* Dynamic suggestions datalist for company input */}
+      <datalist id="companies-suggestions">
+        {companiesList.map((comp) => (
+          <option key={comp} value={comp} />
+        ))}
+      </datalist>
+
       <PageHeader
         title="Admin Management Hub"
         description="Configure Multi-Tenant Company Accounts, Salespeople granular camp permissions, and Camp custom pricing."
@@ -635,22 +642,13 @@ export function AdminClient() {
                 className="pl-9 bg-card"
               />
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Button
-                variant="outline"
-                onClick={() => setNewCompanyModalOpen(true)}
-              >
-                <Plus className="mr-2 size-4" />
-                Add Company Name
-              </Button>
-              <Button
-                className="bg-[#4A60D6] hover:bg-[#3b50c0] text-white"
-                onClick={handleOpenAddCompanyAdmin}
-              >
-                <UserPlus className="mr-2 size-4" />
-                Create Company Admin
-              </Button>
-            </div>
+            <Button
+              className="bg-[#4A60D6] hover:bg-[#3b50c0] text-white"
+              onClick={handleOpenAddCompanyAdmin}
+            >
+              <Plus className="mr-2 size-4" />
+              Add Company & Admin Account
+            </Button>
           </div>
 
           <div className="rounded-xl border bg-card overflow-hidden">
@@ -894,19 +892,14 @@ export function AdminClient() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="companySelect">Assign to Company *</Label>
-                  <Select value={newUserCompany} onValueChange={(v) => v && setNewUserCompany(v)}>
-                    <SelectTrigger id="companySelect">
-                      <SelectValue placeholder="Select company" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {companiesList.map((comp) => (
-                        <SelectItem key={comp} value={comp}>
-                          {comp}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="companyInput">Company Name</Label>
+                  <Input
+                    id="companyInput"
+                    list="companies-suggestions"
+                    placeholder="Type new or select existing..."
+                    value={newUserCompany}
+                    onChange={(e) => setNewUserCompany(e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-1.5">
@@ -1013,19 +1006,15 @@ export function AdminClient() {
 
             <div className="space-y-4 py-4">
               <div className="space-y-1.5">
-                <Label htmlFor="adminCompanySelect">Company Name *</Label>
-                <Select value={adminCompany} onValueChange={(v) => v && setAdminCompany(v)}>
-                  <SelectTrigger id="adminCompanySelect">
-                    <SelectValue placeholder="Select company" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companiesList.map((comp) => (
-                      <SelectItem key={comp} value={comp}>
-                        {comp}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="adminCompanyInput">Company Name *</Label>
+                <Input
+                  id="adminCompanyInput"
+                  list="companies-suggestions"
+                  placeholder="e.g. Starlink WiFi, Apricom DXB, etc."
+                  value={adminCompany}
+                  onChange={(e) => setAdminCompany(e.target.value)}
+                  required
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -1064,44 +1053,7 @@ export function AdminClient() {
         </DialogContent>
       </Dialog>
 
-      {/* ── MODAL: CREATE NEW COMPANY ── */}
-      <Dialog open={newCompanyModalOpen} onOpenChange={setNewCompanyModalOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <form onSubmit={handleCreateNewCompany}>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Plus className="size-5 text-indigo-600" />
-                Add New Company
-              </DialogTitle>
-              <DialogDescription>
-                Enter the name of the new client company to add to your ecosystem.
-              </DialogDescription>
-            </DialogHeader>
 
-            <div className="space-y-4 py-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="companyNameInput">Company Name</Label>
-                <Input
-                  id="companyNameInput"
-                  placeholder="e.g. Starlink WiFi or Apricom Global"
-                  value={newCompanyNameInput}
-                  onChange={(e) => setNewCompanyNameInput(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setNewCompanyModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={savingNewCompany} className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                {savingNewCompany ? "Adding..." : "Add Company"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       {/* ── MODAL: CONFIGURE CAMP PRICING ── */}
       <Dialog open={pricingModalOpen} onOpenChange={setPricingModalOpen}>
