@@ -25,13 +25,30 @@ export async function GET() {
       status: Number(row.status ?? 1),
     }));
 
-    // 2. Get all distinct registered camps
+    // 2. Get all distinct registered camps with their companies
     const campsResult = await database.execute(`
-      SELECT DISTINCT COALESCE(camp, sessionName) as campName FROM routers
+      SELECT DISTINCT name, company_name FROM camps WHERE name IS NOT NULL AND name != ''
+      UNION
+      SELECT DISTINCT COALESCE(camp, sessionName) as name, NULL as company_name FROM routers WHERE COALESCE(camp, sessionName) IS NOT NULL
     `);
-    const registeredCamps = campsResult.rows.map((r) => String(r.campName));
+    const registeredCamps = Array.from(new Set(campsResult.rows.map((r) => String(r.name))));
+    const campsWithCompany = campsResult.rows.map((r) => ({
+      name: String(r.name),
+      companyName: r.company_name ? String(r.company_name) : null,
+    }));
 
-    // 3. Get distinct validity profile names
+    // 3. Get distinct companies
+    const compResult = await database.execute(`
+      SELECT DISTINCT name FROM companies WHERE name IS NOT NULL AND name != ''
+      UNION
+      SELECT DISTINCT company_name as name FROM camps WHERE company_name IS NOT NULL AND company_name != ''
+    `);
+    const companies = Array.from(new Set(compResult.rows.map((r) => String(r.name))));
+    if (companies.length === 0) {
+      companies.push("Apricom DXB", "Apricom KSA");
+    }
+
+    // 4. Get distinct validity profile names
     const vpResult = await database.execute("SELECT name FROM validity_profiles");
     const validityProfiles = vpResult.rows.map((r) => String(r.name));
 
@@ -39,6 +56,8 @@ export async function GET() {
       success: true,
       campPricing,
       registeredCamps,
+      campsWithCompany,
+      companies,
       validityProfiles: validityProfiles.length > 0 ? validityProfiles : ["7-Days", "15-Days", "30-Days"],
     });
   } catch (error) {

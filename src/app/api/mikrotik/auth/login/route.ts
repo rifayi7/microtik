@@ -20,7 +20,7 @@ export async function POST(request: Request) {
 
     const database = await getDB();
     const result = await database.execute({
-      sql: "SELECT id, username, password, display_name, role, camp_name FROM sales_persons WHERE username = ?",
+      sql: "SELECT id, username, password, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE username = ?",
       args: [username.trim()],
     });
 
@@ -37,6 +37,8 @@ export async function POST(request: Request) {
             displayName: username.trim() === "Fasil@2020" ? "Fasil" : "Rifai",
             role: "salesperson",
             campName: "All Camps",
+            companyName: "",
+            allowedCamps: [],
           },
         });
       }
@@ -73,6 +75,17 @@ export async function POST(request: Request) {
       }
     }
 
+    let allowedCamps: string[] = [];
+    if (row.allowed_camps) {
+      try {
+        allowedCamps = JSON.parse(String(row.allowed_camps));
+      } catch {
+        allowedCamps = [String(row.allowed_camps)];
+      }
+    } else if (row.camp_name && row.camp_name !== "All Camps") {
+      allowedCamps = [String(row.camp_name)];
+    }
+
     return NextResponse.json({
       success: true,
       user: {
@@ -80,7 +93,9 @@ export async function POST(request: Request) {
         username: String(row.username),
         displayName: String(row.display_name || row.username),
         role: String(row.role || "salesperson"),
-        campName: String(row.camp_name || "All Camps"),
+        campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "All Camps")),
+        companyName: String(row.company_name || ""),
+        allowedCamps,
       },
     });
   } catch (error) {

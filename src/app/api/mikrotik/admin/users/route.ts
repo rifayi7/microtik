@@ -10,20 +10,35 @@ export async function GET() {
   try {
     const database = await getDB();
     const result = await database.execute(`
-      SELECT id, username, display_name, password, role, camp_name, created_at
+      SELECT id, username, display_name, password, role, camp_name, company_name, allowed_camps, created_at
       FROM sales_persons
       ORDER BY id ASC
     `);
 
-    const users = result.rows.map((row) => ({
-      id: Number(row.id),
-      username: String(row.username),
-      displayName: String(row.display_name || row.username),
-      password: "••••••••",
-      role: String(row.role || "salesperson"),
-      campName: String(row.camp_name || "All Camps"),
-      createdAt: String(row.created_at || ""),
-    }));
+    const users = result.rows.map((row) => {
+      let allowedCamps: string[] = [];
+      if (row.allowed_camps) {
+        try {
+          allowedCamps = JSON.parse(String(row.allowed_camps));
+        } catch {
+          allowedCamps = [String(row.allowed_camps)];
+        }
+      } else if (row.camp_name && row.camp_name !== "All Camps") {
+        allowedCamps = [String(row.camp_name)];
+      }
+
+      return {
+        id: Number(row.id),
+        username: String(row.username),
+        displayName: String(row.display_name || row.username),
+        password: "••••••••",
+        role: String(row.role || "salesperson"),
+        campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps.join(", ") : "All Camps")),
+        companyName: String(row.company_name || ""),
+        allowedCamps,
+        createdAt: String(row.created_at || ""),
+      };
+    });
 
     return NextResponse.json({ success: true, users });
   } catch (error) {
@@ -35,7 +50,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { username, displayName, password, role, campName } = body;
+    const { username, displayName, password, role, campName, companyName, allowedCamps } = body;
 
     if (!username || !password) {
       return NextResponse.json({ success: false, error: "Username and password are required" }, { status: 400 });
@@ -53,10 +68,24 @@ export async function POST(request: Request) {
     }
 
     const hashedPassword = hashPassword(password.trim());
+    const campsArray = Array.isArray(allowedCamps) ? allowedCamps : (campName && campName !== "All Camps" ? [campName] : []);
+    const allowedCampsStr = JSON.stringify(campsArray);
+    const primaryCamp = campsArray.length > 0 ? campsArray[0] : (campName || "All Camps");
 
     const insertResult = await database.execute({
-      sql: "INSERT INTO sales_persons (username, display_name, password, role, camp_name) VALUES (?, ?, ?, ?, ?)",
-      args: [username.trim(), (displayName && displayName.trim()) || username.trim(), hashedPassword, role || "salesperson", campName || "All Camps"],
+      sql: `
+        INSERT INTO sales_persons (username, display_name, password, role, camp_name, company_name, allowed_camps) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        username.trim(), 
+        (displayName && displayName.trim()) || username.trim(), 
+        hashedPassword, 
+        role || "salesperson", 
+        primaryCamp,
+        companyName || null,
+        allowedCampsStr
+      ],
     });
 
     return NextResponse.json({
@@ -91,11 +120,11 @@ export async function DELETE(request: Request) {
   }
 }
 
-// PUT /api/mikrotik/admin/users (Update username / displayName / password / camp / role)
+// PUT /api/mikrotik/admin/users (Update username / displayName / password / camp / company / allowedCamps / role)
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, username, displayName, password, role, campName } = body;
+    const { id, username, displayName, password, role, campName, companyName, allowedCamps } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: "User ID is required" }, { status: 400 });
@@ -122,6 +151,9 @@ export async function PUT(request: Request) {
     }
 
     const hashedPassword = password && password.trim() ? hashPassword(password.trim()) : null;
+    const campsArray = Array.isArray(allowedCamps) ? allowedCamps : (campName && campName !== "All Camps" ? [campName] : undefined);
+    const allowedCampsStr = campsArray !== undefined ? JSON.stringify(campsArray) : undefined;
+    const primaryCamp = campsArray && campsArray.length > 0 ? campsArray[0] : campName;
 
     await database.execute({
       sql: `
@@ -130,7 +162,9 @@ export async function PUT(request: Request) {
             display_name = COALESCE(?, display_name),
             password = COALESCE(?, password),
             role = COALESCE(?, role),
-            camp_name = COALESCE(?, camp_name)
+            camp_name = COALESCE(?, camp_name),
+            company_name = COALESCE(?, company_name),
+            allowed_camps = COALESCE(?, allowed_camps)
         WHERE id = ?
       `,
       args: [
@@ -138,7 +172,9 @@ export async function PUT(request: Request) {
         displayName && displayName.trim() ? displayName.trim() : null,
         hashedPassword,
         role ?? null,
-        campName ?? null,
+        primaryCamp ?? null,
+        companyName ?? null,
+        allowedCampsStr ?? null,
         Number(id),
       ],
     });

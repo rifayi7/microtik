@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { fetchMikrotikApi } from "@/lib/api/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,22 +24,49 @@ export default function LoginPage() {
     setError(null);
 
     const formData = new FormData(e.currentTarget);
-    const username = formData.get("username") as string;
+    const username = (formData.get("username") as string)?.trim();
     const password = formData.get("password") as string;
 
-    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const response = await fetchMikrotikApi<{
+        success: boolean;
+        user?: {
+          id: number;
+          username: string;
+          displayName: string;
+          role: string;
+          companyName: string | null;
+          allowedCamps: string[];
+        };
+        error?: string;
+      }>("/api/mikrotik/auth/admin-login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      });
 
-    if (username?.trim().toLowerCase() === "admin" && password === "admin123") {
-      toast.success("Welcome back!");
-      localStorage.setItem("is_logged_in", "true");
-      const activeRouterId = localStorage.getItem("hotspot-pro-active-router");
-      if (activeRouterId) {
-        router.push("/dashboard");
+      if (response.success && response.user) {
+        toast.success(`Welcome back, ${response.user.displayName}!`);
+        localStorage.setItem("is_logged_in", "true");
+        localStorage.setItem("admin_user_role", response.user.role);
+        localStorage.setItem("admin_user_name", response.user.username);
+        localStorage.setItem("admin_company_name", response.user.companyName || "");
+        localStorage.setItem(
+          "admin_allowed_camps",
+          JSON.stringify(response.user.allowedCamps || [])
+        );
+
+        const activeRouterId = localStorage.getItem("hotspot-pro-active-router");
+        if (activeRouterId) {
+          router.push("/dashboard");
+        } else {
+          router.push("/settings/routers");
+        }
       } else {
-        router.push("/settings/routers");
+        setError(response.error || "Invalid username or password");
       }
-    } else {
-      setError("Invalid username or password");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect to authentication service");
+    } finally {
       setLoading(false);
     }
   };
@@ -53,7 +81,7 @@ export default function LoginPage() {
           <span className="text-xl font-semibold">{APP_NAME}</span>
         </div>
         <p className="text-sm text-primary-foreground/60">
-          Router management · Vouchers · Live sessions · Reports
+          Multi-Tenant Cloud Ecosystem · Routers · Vouchers · Live Sessions · Sales
         </p>
       </div>
 
@@ -66,9 +94,9 @@ export default function LoginPage() {
               </div>
               <span className="font-semibold">{APP_NAME}</span>
             </div>
-            <CardTitle className="text-2xl">Sign in</CardTitle>
+            <CardTitle className="text-2xl">Admin & Company Sign in</CardTitle>
             <CardDescription>
-              Enter your credentials to access the admin panel
+              Sign in with Super Administrator or Company Account credentials
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -84,7 +112,7 @@ export default function LoginPage() {
                   id="username"
                   name="username"
                   type="text"
-                  placeholder="Enter username"
+                  placeholder="e.g. admin or company_admin"
                   required
                   autoComplete="username"
                 />
@@ -92,17 +120,12 @@ export default function LoginPage() {
               <div className="grid gap-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Password</Label>
-                  <Link
-                    href="#"
-                    className="text-xs text-muted-foreground hover:text-primary"
-                  >
-                    Forgot password?
-                  </Link>
                 </div>
                 <Input
                   id="password"
                   name="password"
                   type="password"
+                  placeholder="••••••••"
                   required
                   autoComplete="current-password"
                 />
@@ -113,10 +136,10 @@ export default function LoginPage() {
                   Remember me for 30 days
                 </Label>
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full bg-[#4A60D6] hover:bg-[#3b50c0]" disabled={loading}>
                 {loading ? (
                   <>
-                    <Loader2 className="size-4 animate-spin" />
+                    <Loader2 className="size-4 animate-spin mr-2" />
                     Signing in...
                   </>
                 ) : (

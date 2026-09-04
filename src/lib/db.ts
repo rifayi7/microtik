@@ -94,6 +94,30 @@ export async function initializeDB() {
     // Column already exists
   }
 
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN company_name TEXT;");
+  } catch (e) {
+    // Column already exists
+  }
+
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN allowed_camps TEXT;");
+  } catch (e) {
+    // Column already exists
+  }
+
+  // Create company_admins table for company tenant accounts
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS company_admins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      company_name TEXT NOT NULL,
+      role TEXT DEFAULT 'company_admin',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Create companies table
   await db.execute(`
     CREATE TABLE IF NOT EXISTS companies (

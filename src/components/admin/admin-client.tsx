@@ -15,6 +15,8 @@ import {
   UserCheck,
   UserPlus,
   Users,
+  Briefcase,
+  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
@@ -54,6 +56,8 @@ interface AdminUser {
   password: string;
   role: string;
   campName: string;
+  companyName: string;
+  allowedCamps: string[];
   createdAt: string;
 }
 
@@ -64,6 +68,24 @@ interface CampPricing {
   companyName: string;
   price: number;
   status: number;
+}
+
+interface CompanyAdmin {
+  id: number;
+  username: string;
+  companyName: string;
+  role: string;
+  createdAt: string;
+}
+
+interface CompanyItem {
+  id: number;
+  name: string;
+}
+
+interface CampWithCompany {
+  name: string;
+  companyName: string | null;
 }
 
 export function AdminClient() {
@@ -79,12 +101,15 @@ export function AdminClient() {
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("salesperson");
-  const [newUserCamp, setNewUserCamp] = useState("All Camps");
+  const [newUserCompany, setNewUserCompany] = useState("");
+  const [newUserAllowedCamps, setNewUserAllowedCamps] = useState<string[]>([]);
   const [savingUser, setSavingUser] = useState(false);
 
   // Pricing State
   const [campPricing, setCampPricing] = useState<CampPricing[]>([]);
   const [registeredCamps, setRegisteredCamps] = useState<string[]>([]);
+  const [campsWithCompany, setCampsWithCompany] = useState<CampWithCompany[]>([]);
+  const [companiesList, setCompaniesList] = useState<string[]>([]);
   const [validityProfiles, setValidityProfiles] = useState<string[]>([]);
   const [activePricingCamp, setActivePricingCamp] = useState<string>("");
   const [pricingSearch, setPricingSearch] = useState("");
@@ -94,16 +119,37 @@ export function AdminClient() {
   const [customPrice, setCustomPrice] = useState("");
   const [savingPricing, setSavingPricing] = useState(false);
 
+  // Company Admins State
+  const [companyAdmins, setCompanyAdmins] = useState<CompanyAdmin[]>([]);
+  const [companySearch, setCompanySearch] = useState("");
+  const [companyAdminModalOpen, setCompanyAdminModalOpen] = useState(false);
+  const [editingCompanyAdmin, setEditingCompanyAdmin] = useState<CompanyAdmin | null>(null);
+  const [adminUsername, setAdminUsername] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminCompany, setAdminCompany] = useState("");
+  const [savingCompanyAdmin, setSavingCompanyAdmin] = useState(false);
+
+  // Create Company Modal
+  const [newCompanyModalOpen, setNewCompanyModalOpen] = useState(false);
+  const [newCompanyNameInput, setNewCompanyNameInput] = useState("");
+  const [savingNewCompany, setSavingNewCompany] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, pricingRes] = await Promise.all([
+      const [usersRes, pricingRes, companiesRes] = await Promise.all([
         fetchMikrotikApi<{ users: AdminUser[] }>("/api/mikrotik/admin/users"),
         fetchMikrotikApi<{
           campPricing: CampPricing[];
           registeredCamps: string[];
+          campsWithCompany?: CampWithCompany[];
+          companies?: string[];
           validityProfiles: string[];
         }>("/api/mikrotik/admin/pricing"),
+        fetchMikrotikApi<{
+          companies: CompanyItem[];
+          companyAdmins: CompanyAdmin[];
+        }>("/api/mikrotik/admin/companies").catch(() => ({ companies: [], companyAdmins: [] })),
       ]);
 
       if (usersRes.users) setUsers(usersRes.users);
@@ -113,6 +159,24 @@ export function AdminClient() {
         if (pricingRes.registeredCamps.length > 0 && !activePricingCamp) {
           setActivePricingCamp(pricingRes.registeredCamps[0]);
         }
+      }
+      if (pricingRes.campsWithCompany) setCampsWithCompany(pricingRes.campsWithCompany);
+      
+      const allCompanies = new Set<string>();
+      if (pricingRes.companies) {
+        pricingRes.companies.forEach((c) => allCompanies.add(c));
+      }
+      if (companiesRes.companies) {
+        companiesRes.companies.forEach((c) => allCompanies.add(c.name));
+      }
+      if (allCompanies.size === 0) {
+        allCompanies.add("Apricom DXB");
+        allCompanies.add("Apricom KSA");
+      }
+      setCompaniesList(Array.from(allCompanies));
+
+      if (companiesRes.companyAdmins) {
+        setCompanyAdmins(companiesRes.companyAdmins);
       }
       if (pricingRes.validityProfiles) setValidityProfiles(pricingRes.validityProfiles);
     } catch (err) {
@@ -126,13 +190,21 @@ export function AdminClient() {
     void loadData();
   }, [loadData]);
 
+  // Handle salesperson camp options filtered by company
+  const availableCampsForSelectedCompany = newUserCompany
+    ? campsWithCompany
+        .filter((c) => !c.companyName || c.companyName.toLowerCase() === newUserCompany.toLowerCase())
+        .map((c) => c.name)
+    : registeredCamps;
+
   const handleOpenAddUser = () => {
     setEditingUser(null);
     setNewUsername("");
     setNewDisplayName("");
     setNewPassword("");
     setNewUserRole("salesperson");
-    setNewUserCamp("All Camps");
+    setNewUserCompany(companiesList[0] || "");
+    setNewUserAllowedCamps([]);
     setUserModalOpen(true);
   };
 
@@ -142,8 +214,15 @@ export function AdminClient() {
     setNewDisplayName(user.displayName || user.username);
     setNewPassword("");
     setNewUserRole(user.role);
-    setNewUserCamp(user.campName);
+    setNewUserCompany(user.companyName || companiesList[0] || "");
+    setNewUserAllowedCamps(user.allowedCamps || (user.campName && user.campName !== "All Camps" ? [user.campName] : []));
     setUserModalOpen(true);
+  };
+
+  const toggleAllowedCamp = (campName: string) => {
+    setNewUserAllowedCamps((prev) =>
+      prev.includes(campName) ? prev.filter((c) => c !== campName) : [...prev, campName]
+    );
   };
 
   // Handle Save or Update User
@@ -156,6 +235,8 @@ export function AdminClient() {
 
     setSavingUser(true);
     try {
+      const primaryCamp = newUserAllowedCamps.length > 0 ? newUserAllowedCamps[0] : "All Camps";
+
       if (editingUser) {
         // Update user
         await fetchMikrotikApi("/api/mikrotik/admin/users", {
@@ -166,7 +247,9 @@ export function AdminClient() {
             displayName: newDisplayName.trim() || newUsername.trim(),
             password: newPassword.trim() ? newPassword.trim() : undefined,
             role: newUserRole,
-            campName: newUserCamp,
+            companyName: newUserCompany,
+            campName: primaryCamp,
+            allowedCamps: newUserAllowedCamps,
           }),
         });
         toast.success(`Salesperson account updated to "${newDisplayName.trim() || newUsername.trim()}"!`);
@@ -179,7 +262,9 @@ export function AdminClient() {
             displayName: newDisplayName.trim() || newUsername.trim(),
             password: newPassword.trim(),
             role: newUserRole,
-            campName: newUserCamp,
+            companyName: newUserCompany,
+            campName: primaryCamp,
+            allowedCamps: newUserAllowedCamps,
           }),
         });
         toast.success(`Salesperson account "${newDisplayName || newUsername}" created successfully!`);
@@ -215,6 +300,108 @@ export function AdminClient() {
     }
   };
 
+  // ── Company Admin Actions ──
+  const handleOpenAddCompanyAdmin = () => {
+    setEditingCompanyAdmin(null);
+    setAdminUsername("");
+    setAdminPassword("");
+    setAdminCompany(companiesList[0] || "");
+    setCompanyAdminModalOpen(true);
+  };
+
+  const handleOpenEditCompanyAdmin = (admin: CompanyAdmin) => {
+    setEditingCompanyAdmin(admin);
+    setAdminUsername(admin.username);
+    setAdminPassword("");
+    setAdminCompany(admin.companyName);
+    setCompanyAdminModalOpen(true);
+  };
+
+  const handleSaveCompanyAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminUsername.trim() || (!editingCompanyAdmin && !adminPassword.trim()) || !adminCompany) {
+      toast.error("Please fill in username, password, and company");
+      return;
+    }
+
+    setSavingCompanyAdmin(true);
+    try {
+      await fetchMikrotikApi("/api/mikrotik/admin/companies", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "create_admin",
+          id: editingCompanyAdmin?.id,
+          username: adminUsername.trim(),
+          password: adminPassword.trim(),
+          companyName: adminCompany,
+        }),
+      });
+
+      toast.success(
+        editingCompanyAdmin
+          ? `Company admin "${adminUsername}" updated!`
+          : `Company admin "${adminUsername}" created successfully!`
+      );
+      setCompanyAdminModalOpen(false);
+      setEditingCompanyAdmin(null);
+      setAdminUsername("");
+      setAdminPassword("");
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save company admin");
+    } finally {
+      setSavingCompanyAdmin(false);
+    }
+  };
+
+  const handleDeleteCompanyAdmin = async (admin: CompanyAdmin) => {
+    if (!confirm(`Are you sure you want to delete company admin "${admin.username}" (${admin.companyName})?`)) {
+      return;
+    }
+
+    try {
+      await fetchMikrotikApi("/api/mikrotik/admin/companies", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "delete_admin",
+          id: admin.id,
+        }),
+      });
+      toast.success(`Company admin "${admin.username}" deleted`);
+      setCompanyAdmins((prev) => prev.filter((a) => a.id !== admin.id));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete company admin");
+    }
+  };
+
+  const handleCreateNewCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCompanyNameInput.trim()) {
+      toast.error("Please enter a company name");
+      return;
+    }
+
+    setSavingNewCompany(true);
+    try {
+      await fetchMikrotikApi("/api/mikrotik/admin/companies", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "create_company",
+          companyName: newCompanyNameInput.trim(),
+        }),
+      });
+      toast.success(`Company "${newCompanyNameInput.trim()}" created!`);
+      setNewCompanyModalOpen(false);
+      setNewCompanyNameInput("");
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create company");
+    } finally {
+      setSavingNewCompany(false);
+    }
+  };
+
+  // Pricing Actions
   const handleOpenEditPricing = (item: CampPricing) => {
     setSelectedCamp(item.campName);
     setSelectedValidity(item.validityName);
@@ -222,7 +409,6 @@ export function AdminClient() {
     setPricingModalOpen(true);
   };
 
-  // Handle Save Pricing
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCamp || !selectedValidity || !customPrice) {
@@ -255,7 +441,6 @@ export function AdminClient() {
     }
   };
 
-  // Handle Delete Pricing
   const handleDeletePricing = async (p: CampPricing) => {
     if (!confirm(`Delete custom price for ${p.campName} (${p.validityName})?`)) {
       return;
@@ -276,6 +461,7 @@ export function AdminClient() {
     (u) =>
       u.username.toLowerCase().includes(userSearch.toLowerCase()) ||
       u.campName.toLowerCase().includes(userSearch.toLowerCase()) ||
+      (u.companyName && u.companyName.toLowerCase().includes(userSearch.toLowerCase())) ||
       u.role.toLowerCase().includes(userSearch.toLowerCase())
   );
 
@@ -285,11 +471,17 @@ export function AdminClient() {
       p.validityName.toLowerCase().includes(pricingSearch.toLowerCase())
   );
 
+  const filteredCompanyAdmins = companyAdmins.filter(
+    (a) =>
+      a.username.toLowerCase().includes(companySearch.toLowerCase()) ||
+      a.companyName.toLowerCase().includes(companySearch.toLowerCase())
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Admin Management Hub"
-        description="Configure Salespeople login credentials and Camp custom voucher pricing across all systems."
+        description="Configure Multi-Tenant Company Accounts, Salespeople granular camp permissions, and Camp custom pricing."
       >
         <Button variant="outline" onClick={() => void loadData()} disabled={loading}>
           <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
@@ -303,6 +495,10 @@ export function AdminClient() {
             <Users className="size-4" />
             Salespeople Accounts ({users.length})
           </TabsTrigger>
+          <TabsTrigger value="companies" className="gap-2">
+            <Building2 className="size-4" />
+            Company Accounts ({companyAdmins.length})
+          </TabsTrigger>
           <TabsTrigger value="pricing" className="gap-2">
             <DollarSign className="size-4" />
             Camp Pricing Settings ({campPricing.length})
@@ -315,7 +511,7 @@ export function AdminClient() {
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
               <Input
-                placeholder="Search salesperson..."
+                placeholder="Search salesperson, camp, company..."
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
                 className="pl-9 bg-card"
@@ -337,17 +533,18 @@ export function AdminClient() {
                   <TableHead className="w-12">#</TableHead>
                   <TableHead>Login Username</TableHead>
                   <TableHead>Display Name</TableHead>
-                  <TableHead>Assigned Camp</TableHead>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Allowed Camps / Permissions</TableHead>
                   <TableHead>Role</TableHead>
-                  <TableHead>Password / PIN</TableHead>
+                  <TableHead>Password</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                      No salespeople found. Click &quot;Add Salesperson&quot; to create one.
+                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+                      No salespeople found. Click &quot;Add New Salesperson&quot; to create one.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -361,10 +558,34 @@ export function AdminClient() {
                         {user.displayName || user.username}
                       </TableCell>
                       <TableCell>
-                        <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
-                          <Building2 className="size-3" />
-                          {user.campName}
-                        </span>
+                        {user.companyName ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                            <Briefcase className="size-3" />
+                            {user.companyName}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Global</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {user.allowedCamps && user.allowedCamps.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {user.allowedCamps.map((camp) => (
+                              <span
+                                key={camp}
+                                className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300"
+                              >
+                                <Building2 className="size-3" />
+                                {camp}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+                            <Building2 className="size-3" />
+                            {user.campName || "All Camps"}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300">
@@ -402,7 +623,110 @@ export function AdminClient() {
           </div>
         </TabsContent>
 
-        {/* ── TAB 2: CAMP PRICING SETTINGS ── */}
+        {/* ── TAB 2: COMPANY TENANT ACCOUNTS ── */}
+        <TabsContent value="companies" className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search company admin..."
+                value={companySearch}
+                onChange={(e) => setCompanySearch(e.target.value)}
+                className="pl-9 bg-card"
+              />
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button
+                variant="outline"
+                onClick={() => setNewCompanyModalOpen(true)}
+              >
+                <Plus className="mr-2 size-4" />
+                Add Company Name
+              </Button>
+              <Button
+                className="bg-[#4A60D6] hover:bg-[#3b50c0] text-white"
+                onClick={handleOpenAddCompanyAdmin}
+              >
+                <UserPlus className="mr-2 size-4" />
+                Create Company Admin
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead>Admin Username</TableHead>
+                  <TableHead>Assigned Company</TableHead>
+                  <TableHead>Account Role</TableHead>
+                  <TableHead>Password</TableHead>
+                  <TableHead>Created Date</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredCompanyAdmins.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                      No company admin accounts found. Click &quot;Create Company Admin&quot; to provide login credentials to a client company.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredCompanyAdmins.map((admin, idx) => (
+                    <TableRow key={admin.id}>
+                      <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
+                      <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
+                        {admin.username}
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">
+                          <Briefcase className="size-3.5" />
+                          {admin.companyName}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                          <ShieldCheck className="size-3" />
+                          Company Admin
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        ••••••••
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {admin.createdAt ? admin.createdAt.slice(0, 10) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                            onClick={() => handleOpenEditCompanyAdmin(admin)}
+                          >
+                            <Key className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => void handleDeleteCompanyAdmin(admin)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* ── TAB 3: CAMP PRICING SETTINGS ── */}
         <TabsContent value="pricing" className="space-y-4">
           {/* Camp Selector Pills */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -519,7 +843,7 @@ export function AdminClient() {
 
       {/* ── MODAL: ADD / EDIT SALESPERSON ── */}
       <Dialog open={userModalOpen} onOpenChange={setUserModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleSaveUser}>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -528,35 +852,37 @@ export function AdminClient() {
               </DialogTitle>
               <DialogDescription>
                 {editingUser 
-                  ? "Update password, assigned camp, or account role for this salesperson."
-                  : "Create a login account for a mobile sales agent. They can immediately log in from the mobile app."}
+                  ? "Update company assignment, allowed camps permissions, or password for this salesperson."
+                  : "Assign this salesperson to a Company and select which Camps they are authorized to recharge."}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="username">Login Username</Label>
-                <Input
-                  id="username"
-                  placeholder="e.g. Fasil@2020 or Akif"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="username">Login Username *</Label>
+                  <Input
+                    id="username"
+                    placeholder="e.g. Fasil@2020 or Akif"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="displayName">Display Name</Label>
+                  <Input
+                    id="displayName"
+                    placeholder="e.g. Fasil or Akif"
+                    value={newDisplayName}
+                    onChange={(e) => setNewDisplayName(e.target.value)}
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="displayName">Display Name (Shown on Welcome Screen)</Label>
-                <Input
-                  id="displayName"
-                  placeholder="e.g. Fasil or Akif"
-                  value={newDisplayName}
-                  onChange={(e) => setNewDisplayName(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="password">{editingUser ? "New Password / PIN (Leave empty to keep current)" : "Login Password / PIN"}</Label>
+                <Label htmlFor="password">{editingUser ? "New Password / PIN (Leave empty to keep current)" : "Login Password / PIN *"}</Label>
                 <Input
                   id="password"
                   placeholder={editingUser ? "Enter new PIN or password" : "Enter numeric PIN or password"}
@@ -566,35 +892,96 @@ export function AdminClient() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="role">Account Role</Label>
-                <Select value={newUserRole} onValueChange={(v) => v && setNewUserRole(v)}>
-                  <SelectTrigger id="role">
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="salesperson">Salesperson (Mobile App)</SelectItem>
-                    <SelectItem value="admin">Administrator (Full Access)</SelectItem>
-                    <SelectItem value="operator">Operator (Recharge Only)</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="companySelect">Assign to Company *</Label>
+                  <Select value={newUserCompany} onValueChange={(v) => v && setNewUserCompany(v)}>
+                    <SelectTrigger id="companySelect">
+                      <SelectValue placeholder="Select company" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {companiesList.map((comp) => (
+                        <SelectItem key={comp} value={comp}>
+                          {comp}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="role">Account Role</Label>
+                  <Select value={newUserRole} onValueChange={(v) => v && setNewUserRole(v)}>
+                    <SelectTrigger id="role">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="salesperson">Salesperson (Mobile App)</SelectItem>
+                      <SelectItem value="admin">Administrator (Full Access)</SelectItem>
+                      <SelectItem value="operator">Operator (Recharge Only)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="camp">Assigned Camp (Optional)</Label>
-                <Select value={newUserCamp} onValueChange={(v) => v && setNewUserCamp(v)}>
-                  <SelectTrigger id="camp">
-                    <SelectValue placeholder="Select camp" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="All Camps">All Camps (Global)</SelectItem>
-                    {registeredCamps.map((camp) => (
-                      <SelectItem key={camp} value={camp}>
-                        {camp}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              {/* Granular Camp Access Checkboxes */}
+              <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Authorized Camps ({newUserAllowedCamps.length} selected)
+                  </Label>
+                  <div className="flex gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setNewUserAllowedCamps([...availableCampsForSelectedCompany])}
+                      className="text-blue-600 hover:underline font-medium"
+                    >
+                      Select All
+                    </button>
+                    <span>·</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewUserAllowedCamps([])}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The mobile app will restrict this sales agent to only view and recharge for these specific camps.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-40 overflow-y-auto">
+                  {availableCampsForSelectedCompany.length === 0 ? (
+                    <div className="col-span-2 text-xs text-muted-foreground py-2">
+                      No camps registered under {newUserCompany || "this company"}.
+                    </div>
+                  ) : (
+                    availableCampsForSelectedCompany.map((camp) => {
+                      const isChecked = newUserAllowedCamps.includes(camp);
+                      return (
+                        <label
+                          key={camp}
+                          className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer transition-all ${
+                            isChecked
+                              ? "bg-blue-50 border-blue-300 text-blue-900 font-semibold dark:bg-blue-950/50 dark:border-blue-700 dark:text-blue-200"
+                              : "bg-card border-border text-slate-700 dark:text-slate-300 hover:bg-muted"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleAllowedCamp(camp)}
+                            className="size-4 rounded border-gray-300 text-[#4A60D6] focus:ring-[#4A60D6]"
+                          />
+                          <Building2 className="size-3.5 text-muted-foreground" />
+                          <span className="truncate">{camp}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
 
@@ -604,6 +991,112 @@ export function AdminClient() {
               </Button>
               <Button type="submit" disabled={savingUser} className="bg-[#4A60D6] text-white">
                 {savingUser ? "Saving..." : editingUser ? "Update Account" : "Create Account"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── MODAL: CREATE / EDIT COMPANY ADMIN ── */}
+      <Dialog open={companyAdminModalOpen} onOpenChange={setCompanyAdminModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleSaveCompanyAdmin}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Building2 className="size-5 text-amber-600" />
+                {editingCompanyAdmin ? `Edit Company Admin (${editingCompanyAdmin.username})` : "Create Company Admin Account"}
+              </DialogTitle>
+              <DialogDescription>
+                Company Admins can log in to view only their assigned company&apos;s camps, routers, and staff.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="adminCompanySelect">Company Name *</Label>
+                <Select value={adminCompany} onValueChange={(v) => v && setAdminCompany(v)}>
+                  <SelectTrigger id="adminCompanySelect">
+                    <SelectValue placeholder="Select company" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {companiesList.map((comp) => (
+                      <SelectItem key={comp} value={comp}>
+                        {comp}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="adminUsername">Admin Login Username *</Label>
+                <Input
+                  id="adminUsername"
+                  placeholder="e.g. apricom_admin"
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="adminPassword">{editingCompanyAdmin ? "New Password (Leave empty to keep current)" : "Login Password *"}</Label>
+                <Input
+                  id="adminPassword"
+                  type="password"
+                  placeholder={editingCompanyAdmin ? "Enter new password" : "Enter secure admin password"}
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  required={!editingCompanyAdmin}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCompanyAdminModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingCompanyAdmin} className="bg-amber-600 hover:bg-amber-700 text-white">
+                {savingCompanyAdmin ? "Saving..." : editingCompanyAdmin ? "Update Admin" : "Create Company Admin"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── MODAL: CREATE NEW COMPANY ── */}
+      <Dialog open={newCompanyModalOpen} onOpenChange={setNewCompanyModalOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <form onSubmit={handleCreateNewCompany}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Plus className="size-5 text-indigo-600" />
+                Add New Company
+              </DialogTitle>
+              <DialogDescription>
+                Enter the name of the new client company to add to your ecosystem.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="companyNameInput">Company Name</Label>
+                <Input
+                  id="companyNameInput"
+                  placeholder="e.g. Starlink WiFi or Apricom Global"
+                  value={newCompanyNameInput}
+                  onChange={(e) => setNewCompanyNameInput(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNewCompanyModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingNewCompany} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                {savingNewCompany ? "Adding..." : "Add Company"}
               </Button>
             </DialogFooter>
           </form>
