@@ -118,14 +118,16 @@ export function RouterSettingsClient({ routerId }: RouterSettingsClientProps) {
       setConfigured(true);
       setLoading(false);
 
-      // Attempt background fetch to verify status/fetch live metrics
+      // Attempt background fetch only to check live status without overwriting user form inputs
       try {
         const payload = await fetchMikrotikApi<{ router: Router }>(
           `/api/mikrotik/routers/${routerId}`
         );
-        setData(payload.router);
+        if (payload?.router?.status) {
+          setData((prev) => (prev ? { ...prev, status: payload.router.status } : prev));
+        }
       } catch {
-        // Safe to ignore if background status fetch fails (e.g. manually added local router)
+        // Safe to ignore if background status fetch fails (e.g. unverified/offline router)
       }
       return;
     }

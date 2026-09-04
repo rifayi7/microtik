@@ -229,8 +229,8 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
         throw new Error(result.error ?? "Connection failed");
       }
 
-      const connected = { ...target, status: "online" as const };
-      updateRouter(id, { status: "online" });
+      const connected = { ...target, status: "online" as const, verified: true };
+      updateRouter(id, { status: "online", verified: true });
       setActiveRouter(connected);
       saveActiveRouterId(id);
       router.push("/dashboard");
