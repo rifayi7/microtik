@@ -46,6 +46,20 @@ async function handleRequest(request: Request) {
       }
     }
 
+    // Build dynamic WHERE clause
+    const conditions: string[] = ["v.status = 'redeemed'"];
+    const args: any[] = [];
+
+    if (company && company.trim()) {
+      conditions.push(`v.router_id IN (
+        SELECT r.id FROM routers r 
+        WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (
+          SELECT LOWER(name) FROM camps WHERE LOWER(company_name) = LOWER(?)
+        )
+      )`);
+      args.push(company.trim());
+    }
+
     let allowedCamps: string[] = authUser?.allowedCamps || [];
 
     // If allowedCamps not in JWT, check from database for the salesperson
