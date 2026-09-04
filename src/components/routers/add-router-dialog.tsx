@@ -66,6 +66,8 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
       return;
     }
 
+    const currentCompany = typeof window !== "undefined" ? localStorage.getItem("admin_company_name") : "";
+
     addRouter({
       sessionName: sessionName.trim(),
       host: host.trim(),
@@ -76,6 +78,8 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
       hotspotName: hotspotName.trim() || sessionName.trim(),
       dnsName: dnsName.trim(),
       currency,
+      camp: sessionName.trim(),
+      company: currentCompany || undefined,
       sessionTimeout,
       liveReport,
       phone: phone.trim(),

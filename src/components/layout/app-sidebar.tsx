@@ -65,6 +65,7 @@ export function AppSidebar() {
   const { isConnected, activeRouter, routers, connectRouter, disconnectRouter } =
     useRouterContext();
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+  const [showSignoutModal, setShowSignoutModal] = useState(false);
   const [userRole, setUserRole] = useState<string>("superadmin");
 
   useEffect(() => {
@@ -227,9 +228,14 @@ export function AppSidebar() {
             <AlertDialogAction
               onClick={() => {
                 localStorage.removeItem("is_logged_in");
+                localStorage.removeItem("admin_user_role");
+                localStorage.removeItem("admin_user_name");
+                localStorage.removeItem("admin_company_name");
+                localStorage.removeItem("admin_allowed_camps");
+                localStorage.removeItem("hotspot-pro-routers");
                 localStorage.removeItem("hotspot-pro-active-router");
                 setShowSignoutModal(false);
-                routerNav.push("/login");
+                window.location.href = "/login";
               }}
             >
               Sign out

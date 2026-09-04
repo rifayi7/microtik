@@ -54,13 +54,11 @@ export default function LoginPage() {
           "admin_allowed_camps",
           JSON.stringify(response.user.allowedCamps || [])
         );
+        // Clear cached routers and active router from previous session/company
+        localStorage.removeItem("hotspot-pro-routers");
+        localStorage.removeItem("hotspot-pro-active-router");
 
-        const activeRouterId = localStorage.getItem("hotspot-pro-active-router");
-        if (activeRouterId) {
-          router.push("/dashboard");
-        } else {
-          router.push("/settings/routers");
-        }
+        window.location.href = "/settings/routers";
       } else {
         setError(response.error || "Invalid username or password");
       }

@@ -73,9 +73,11 @@ export function RouterListClient() {
     setError(null);
 
     try {
-      const payload = await fetchMikrotikApi<{ routers: Router[] }>(
-        "/api/mikrotik/routers"
-      );
+      const company = typeof window !== "undefined" ? localStorage.getItem("admin_company_name") : null;
+      const url = company && company.trim()
+        ? `/api/mikrotik/routers?company=${encodeURIComponent(company.trim())}`
+        : "/api/mikrotik/routers";
+      const payload = await fetchMikrotikApi<{ routers: Router[] }>(url);
       setConfigured(payload.configured !== false);
       setRouters(payload.routers);
     } catch (err) {

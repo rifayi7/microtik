@@ -27,6 +27,7 @@ interface RouterContextValue {
   activeRouter: StoredRouter | null;
   isConnected: boolean;
   isReady: boolean;
+  refreshRouters: () => Promise<void>;
   addRouter: (router: Omit<StoredRouter, "id">) => Promise<StoredRouter | undefined>;
   updateRouter: (id: string, patch: Partial<StoredRouter>) => Promise<void>;
   removeRouter: (id: string) => Promise<void>;
@@ -64,42 +65,51 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
   const [activeRouter, setActiveRouter] = useState<StoredRouter | null>(null);
   const [isReady, setIsReady] = useState(false);
 
-  // Load configuration from database API on mount (fallback to localStorage if offline)
-  useEffect(() => {
-    async function loadFromDB() {
-      try {
-        const companyName = typeof window !== "undefined" ? localStorage.getItem("admin_company_name") : null;
-        const url = companyName ? `/api/mikrotik/routers?company=${encodeURIComponent(companyName)}` : "/api/mikrotik/routers";
-        const payload = await fetchMikrotikApi<{ routers: Record<string, unknown>[]; configured: boolean }>(url);
-        const mapped = (payload.routers || []).map(mapEnvRouter);
-        setRouters(mapped);
-        saveRouters(mapped); // Cache locally for offline availability
+  const loadFromDB = useCallback(async () => {
+    try {
+      const companyName = typeof window !== "undefined" ? localStorage.getItem("admin_company_name") : null;
+      const url = companyName && companyName.trim()
+        ? `/api/mikrotik/routers?company=${encodeURIComponent(companyName.trim())}`
+        : "/api/mikrotik/routers";
+      const payload = await fetchMikrotikApi<{ routers: Record<string, unknown>[]; configured: boolean }>(url);
+      const mapped = (payload.routers || []).map(mapEnvRouter);
+      setRouters(mapped);
+      saveRouters(mapped);
 
-        const activeId = loadActiveRouterId();
-        if (activeId && mapped.some((m) => m.id === activeId)) {
-          const found = mapped.find((item) => item.id === activeId) ?? null;
-          setActiveRouter(found);
-        } else if (mapped.length > 0) {
-          setActiveRouter(mapped[0]);
-          saveActiveRouterId(mapped[0].id);
-        } else {
-          setActiveRouter(null);
-        }
-      } catch (err) {
-        console.warn("Failed to load routers from server database. Using offline cache.", err);
-        const stored = loadRouters();
-        setRouters(stored);
-        const activeId = loadActiveRouterId();
-        if (activeId) {
-          const found = stored.find((item) => item.id === activeId) ?? null;
-          setActiveRouter(found);
-        }
-      } finally {
-        setIsReady(true);
+      const activeId = loadActiveRouterId();
+      if (activeId && mapped.some((m) => m.id === activeId)) {
+        const found = mapped.find((item) => item.id === activeId) ?? null;
+        setActiveRouter(found);
+      } else if (mapped.length > 0) {
+        setActiveRouter(mapped[0]);
+        saveActiveRouterId(mapped[0].id);
+      } else {
+        setActiveRouter(null);
       }
+    } catch (err) {
+      console.warn("Failed to load routers from server database. Using offline cache.", err);
+      const stored = loadRouters();
+      setRouters(stored);
+      const activeId = loadActiveRouterId();
+      if (activeId) {
+        const found = stored.find((item) => item.id === activeId) ?? null;
+        setActiveRouter(found);
+      }
+    } finally {
+      setIsReady(true);
     }
-    void loadFromDB();
   }, []);
+
+  // Load configuration from database API on mount and on storage events
+  useEffect(() => {
+    void loadFromDB();
+
+    const handleStorageChange = () => {
+      void loadFromDB();
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [loadFromDB]);
 
   const persist = useCallback((next: StoredRouter[]) => {
     setRouters(next);
@@ -243,6 +253,7 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
       activeRouter,
       isConnected: activeRouter !== null,
       isReady,
+      refreshRouters: loadFromDB,
       addRouter,
       updateRouter,
       removeRouter,
@@ -254,6 +265,7 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
       routers,
       activeRouter,
       isReady,
+      loadFromDB,
       addRouter,
       updateRouter,
       removeRouter,

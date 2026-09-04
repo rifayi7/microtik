@@ -16,6 +16,7 @@ export interface StoredRouter {
   liveReport: boolean;
   phone: string;
   camp?: string;
+  company?: string;
   status?: ConnectionStatus;
   verified?: boolean;
 }

@@ -56,9 +56,9 @@ export async function GET(request: Request) {
       });
     }
 
-    // Merge with env-configured routers if any (env routers default to verified)
+    // Merge with env-configured routers if any (env routers default to verified, only for Super Admin or when matching)
     let envRouters: any[] = [];
-    if (isMikrotikConfigured()) {
+    if (isMikrotikConfigured() && (!companyFilter || !companyFilter.trim())) {
       const configs = getConfiguredRouters();
       envRouters = configs.map((config) => ({
         id: config.id,
@@ -109,10 +109,14 @@ export async function POST(request: Request) {
       dnsName,
       currency,
       camp,
+      company,
+      companyName,
       sessionTimeout,
       phone,
       liveReport,
     } = body;
+
+    const assignedCompany = (companyName || company || "").trim() || null;
 
     if (!sessionName || !host || !port || !username) {
       return NextResponse.json(
@@ -225,8 +229,8 @@ export async function POST(request: Request) {
     if (isVerified) {
       try {
         await database.execute({
-          sql: "INSERT OR IGNORE INTO camps (name, hotspot_name) VALUES (?, ?)",
-          args: [campName, sessionName],
+          sql: "INSERT OR IGNORE INTO camps (name, hotspot_name, company_name) VALUES (?, ?, ?)",
+          args: [campName, sessionName, assignedCompany],
         });
       } catch (e) {
         console.warn("Could not insert camp metadata:", e);
@@ -236,12 +240,12 @@ export async function POST(request: Request) {
       try {
         await database.batch([
           {
-            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
-            args: [campName, "15-Days", 16, 1],
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, price, status) VALUES (?, ?, ?, ?, ?)",
+            args: [campName, "15-Days", assignedCompany || "Apricom", 16, 1],
           },
           {
-            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
-            args: [campName, "30-Days", 32, 1],
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, price, status) VALUES (?, ?, ?, ?, ?)",
+            args: [campName, "30-Days", assignedCompany || "Apricom", 32, 1],
           },
         ], "write");
       } catch (e) {

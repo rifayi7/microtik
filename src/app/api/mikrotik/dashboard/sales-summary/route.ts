@@ -8,6 +8,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const salespersonParam = url.searchParams.get("salesperson");
     const salesPersonIdParam = url.searchParams.get("salesPersonId");
+    const companyParam = url.searchParams.get("company");
     const database = await getDB();
     
     // Resolve user ID if provided
@@ -27,6 +28,16 @@ export async function GET(request: Request) {
 
     const isFilteredBySalesperson = Boolean(targetUserId || targetUsername);
 
+    // Get company camp names if company filter is active
+    let companyCampNames: string[] = [];
+    if (companyParam && companyParam.trim()) {
+      const campRes = await database.execute({
+        sql: "SELECT name FROM camps WHERE LOWER(company_name) = LOWER(?)",
+        args: [companyParam.trim()],
+      });
+      companyCampNames = campRes.rows.map((r) => String(r.name).toLowerCase());
+    }
+
     // 1. Get total revenue, today sales, and monthly sales for this specific salesperson
     let userStats = {
       totalRevenue: 0,
@@ -38,8 +49,6 @@ export async function GET(request: Request) {
     };
 
     // We compute dates using Dubai/UAE Time (UTC+4):
-    // date('now', '+4 hours') ensures 'today' runs strictly from 12:00 AM (00:00) to 11:59:59 PM local time.
-    // strftime('%Y-%m', 'now', '+4 hours') ensures 'month' strictly resets on the 1st of every calendar month.
     const todayExpr = "date('now', '+4 hours')";
     const monthExpr = "strftime('%Y-%m', 'now', '+4 hours')";
     const usedAtDateExpr = "date(used_at, '+4 hours')";
@@ -98,7 +107,12 @@ export async function GET(request: Request) {
     }
 
     // 2. Get sales counts and revenue amounts per router/camp
-    // If salesperson is specified, filter vouchers by this salesperson
+    const routerFilterClause = companyCampNames.length > 0
+      ? `WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${companyCampNames.map(() => '?').join(',')})`
+      : (companyParam && companyParam.trim() ? "WHERE 1=0" : "");
+
+    const routerFilterArgs = companyCampNames.length > 0 ? companyCampNames : [];
+
     const salesSql = isFilteredBySalesperson
       ? `
         SELECT 
@@ -124,6 +138,7 @@ export async function GET(request: Request) {
           (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
           OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
         )
+        ${routerFilterClause}
         GROUP BY r.id
       `
       : `
@@ -147,15 +162,20 @@ export async function GET(request: Request) {
           SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
         LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed'
+        ${routerFilterClause}
         GROUP BY r.id
       `;
 
     const targetIdVal = targetUserId ? Number(targetUserId) : -1;
     const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
 
+    const queryArgs = isFilteredBySalesperson
+      ? [targetIdVal, targetUserVal, targetIdVal, targetUserVal, ...routerFilterArgs]
+      : routerFilterArgs;
+
     const salesResult = await database.execute({
       sql: salesSql,
-      args: isFilteredBySalesperson ? [targetIdVal, targetUserVal, targetIdVal, targetUserVal] : [],
+      args: queryArgs,
     });
 
     // 3. Get total payments per camp and overall payments

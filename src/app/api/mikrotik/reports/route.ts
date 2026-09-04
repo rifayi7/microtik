@@ -22,6 +22,7 @@ async function handleRequest(request: Request) {
     let endDate = url.searchParams.get("endDate");
     let salesperson = url.searchParams.get("salesperson");
     let salesPersonId = url.searchParams.get("salesPersonId");
+    let company = url.searchParams.get("company");
 
     if (request.method === "POST") {
       try {
@@ -32,6 +33,7 @@ async function handleRequest(request: Request) {
         if (body.endDate) endDate = body.endDate;
         if (body.salesperson) salesperson = body.salesperson;
         if (body.salesPersonId) salesPersonId = body.salesPersonId;
+        if (body.company) company = body.company;
       } catch {
         // Body parsing optional
       }
@@ -40,6 +42,16 @@ async function handleRequest(request: Request) {
     // Build dynamic WHERE clause
     const conditions: string[] = ["v.status = 'redeemed'"];
     const args: any[] = [];
+
+    if (company && company.trim()) {
+      conditions.push(`v.router_id IN (
+        SELECT r.id FROM routers r 
+        WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (
+          SELECT LOWER(name) FROM camps WHERE LOWER(company_name) = LOWER(?)
+        )
+      )`);
+      args.push(company.trim());
+    }
 
     if (routerId && routerId.trim() !== "") {
       conditions.push("v.router_id = ?");

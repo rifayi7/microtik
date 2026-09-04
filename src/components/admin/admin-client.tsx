@@ -134,6 +134,9 @@ export function AdminClient() {
   const [customPrice, setCustomPrice] = useState("");
   const [savingPricing, setSavingPricing] = useState(false);
 
+  // Filter by Company for Super Admin
+  const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>("ALL");
+
   // Company Admins State
   const [companyAdmins, setCompanyAdmins] = useState<CompanyAdmin[]>([]);
   const [companySearch, setCompanySearch] = useState("");
@@ -472,19 +475,31 @@ export function AdminClient() {
     }
   };
 
-  const filteredUsers = users.filter(
-    (u) =>
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch =
       u.username.toLowerCase().includes(userSearch.toLowerCase()) ||
       u.campName.toLowerCase().includes(userSearch.toLowerCase()) ||
       (u.companyName && u.companyName.toLowerCase().includes(userSearch.toLowerCase())) ||
-      u.role.toLowerCase().includes(userSearch.toLowerCase())
-  );
+      u.role.toLowerCase().includes(userSearch.toLowerCase());
 
-  const filteredPricing = campPricing.filter(
-    (p) =>
+    const matchesCompany =
+      selectedCompanyFilter === "ALL" ||
+      (u.companyName && u.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase());
+
+    return matchesSearch && matchesCompany;
+  });
+
+  const filteredPricing = campPricing.filter((p) => {
+    const matchesSearch =
       p.campName.toLowerCase().includes(pricingSearch.toLowerCase()) ||
-      p.validityName.toLowerCase().includes(pricingSearch.toLowerCase())
-  );
+      p.validityName.toLowerCase().includes(pricingSearch.toLowerCase());
+
+    const matchesCompany =
+      selectedCompanyFilter === "ALL" ||
+      (p.companyName && p.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase());
+
+    return matchesSearch && matchesCompany;
+  });
 
   const filteredCompanyAdmins = companyAdmins.filter(
     (a) =>
@@ -529,6 +544,42 @@ export function AdminClient() {
 
         {/* ── TAB 1: SALESPEOPLE MANAGEMENT ── */}
         <TabsContent value="users" className="space-y-4">
+          {/* Company Filter Pills */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-1 flex items-center gap-1">
+              <Briefcase className="size-3.5" />
+              Company:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedCompanyFilter("ALL")}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                selectedCompanyFilter === "ALL"
+                  ? "bg-[#4A60D6] text-white shadow-sm font-semibold"
+                  : "bg-card border text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              All Companies ({users.length})
+            </button>
+            {companiesList.map((comp) => {
+              const count = users.filter((u) => u.companyName && u.companyName.toLowerCase() === comp.toLowerCase()).length;
+              return (
+                <button
+                  key={comp}
+                  type="button"
+                  onClick={() => setSelectedCompanyFilter(comp)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                    selectedCompanyFilter.toLowerCase() === comp.toLowerCase()
+                      ? "bg-[#4A60D6] text-white shadow-sm font-semibold"
+                      : "bg-card border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {comp} ({count})
+                </button>
+              );
+            })}
+          </div>
+
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
@@ -741,12 +792,50 @@ export function AdminClient() {
 
         {/* ── TAB 3: CAMP PRICING SETTINGS ── */}
         <TabsContent value="pricing" className="space-y-4">
+          {/* Company Filter Pills */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-1 flex items-center gap-1">
+              <Briefcase className="size-3.5" />
+              Company:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedCompanyFilter("ALL")}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                selectedCompanyFilter === "ALL"
+                  ? "bg-[#4A60D6] text-white shadow-sm font-semibold"
+                  : "bg-card border text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              All Companies
+            </button>
+            {companiesList.map((comp) => (
+              <button
+                key={comp}
+                type="button"
+                onClick={() => setSelectedCompanyFilter(comp)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                  selectedCompanyFilter.toLowerCase() === comp.toLowerCase()
+                    ? "bg-[#4A60D6] text-white shadow-sm font-semibold"
+                    : "bg-card border text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {comp}
+              </button>
+            ))}
+          </div>
+
           {/* Camp Selector Pills */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-1">
               Select Camp:
             </span>
-            {registeredCamps.map((camp) => (
+            {(selectedCompanyFilter === "ALL"
+              ? registeredCamps
+              : campsWithCompany
+                  .filter((c) => !c.companyName || c.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase())
+                  .map((c) => c.name)
+            ).map((camp) => (
               <button
                 key={camp}
                 type="button"
