@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
-import { hashPassword } from "@/lib/auth-crypto";
+import { hashPassword, extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 // GET /api/mikrotik/admin/companies
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const authUser = extractAuthToken(request);
+    if (authUser && authUser.role !== "superadmin") {
+      return NextResponse.json({ success: false, error: "Unauthorized access" }, { status: 403 });
+    }
+
     const database = await getDB();
 
     // 1. Get all companies
@@ -45,6 +50,11 @@ export async function GET() {
 // POST /api/mikrotik/admin/companies
 export async function POST(request: Request) {
   try {
+    const authUser = extractAuthToken(request);
+    if (authUser && authUser.role !== "superadmin") {
+      return NextResponse.json({ success: false, error: "Unauthorized access" }, { status: 403 });
+    }
+
     const body = await request.json();
     const { action, companyName, username, password, id } = body;
     const database = await getDB();

@@ -1,19 +1,29 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
-import { hashPassword } from "@/lib/auth-crypto";
+import { hashPassword, extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 // GET /api/mikrotik/admin/users
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const authUser = extractAuthToken(request);
     const database = await getDB();
-    const result = await database.execute(`
+    
+    let query = `
       SELECT id, username, display_name, password, role, camp_name, company_name, allowed_camps, created_at
       FROM sales_persons
-      ORDER BY id ASC
-    `);
+    `;
+    const args: any[] = [];
+
+    if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
+      query += " WHERE LOWER(company_name) = LOWER(?) ";
+      args.push(authUser.companyName.trim());
+    }
+
+    query += " ORDER BY id ASC";
+    const result = await database.execute({ sql: query, args });
 
     const users = result.rows.map((row) => {
       let allowedCamps: string[] = [];
