@@ -114,12 +114,41 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. Get sales counts and revenue amounts per router/camp
-    const routerFilterClause = companyCampNames.length > 0
-      ? `WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${companyCampNames.map(() => '?').join(',')})`
-      : (companyParam && companyParam.trim() ? "WHERE 1=0" : "");
+    // Fetch allowed camps for this user if applicable
+    let userAllowedCamps: string[] = [];
+    if (authUser && authUser.allowedCamps && authUser.allowedCamps.length > 0) {
+      userAllowedCamps = authUser.allowedCamps.map((c) => c.toLowerCase());
+    } else if (targetUserId) {
+      const spRes = await database.execute({
+        sql: "SELECT camp_name, allowed_camps FROM sales_persons WHERE id = ?",
+        args: [targetUserId],
+      });
+      if (spRes.rows.length > 0) {
+        const spRow = spRes.rows[0];
+        if (spRow.allowed_camps) {
+          try {
+            const parsed = JSON.parse(String(spRow.allowed_camps));
+            if (Array.isArray(parsed)) userAllowedCamps = parsed.map((c) => String(c).toLowerCase());
+          } catch {}
+        } else if (spRow.camp_name && spRow.camp_name !== "All Camps") {
+          userAllowedCamps = [String(spRow.camp_name).toLowerCase()];
+        }
+      }
+    }
 
-    const routerFilterArgs = companyCampNames.length > 0 ? companyCampNames : [];
+    // 2. Get sales counts and revenue amounts per router/camp
+    let effectiveCampFilters = companyCampNames;
+    if (userAllowedCamps.length > 0) {
+      effectiveCampFilters = companyCampNames.length > 0
+        ? companyCampNames.filter((c) => userAllowedCamps.includes(c))
+        : userAllowedCamps;
+    }
+
+    const routerFilterClause = effectiveCampFilters.length > 0
+      ? `WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')})`
+      : ((companyParam && companyParam.trim()) || userAllowedCamps.length > 0 ? "WHERE 1=0" : "");
+
+    const routerFilterArgs = effectiveCampFilters.length > 0 ? effectiveCampFilters : [];
 
     const salesSql = isFilteredBySalesperson
       ? `

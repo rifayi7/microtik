@@ -63,6 +63,15 @@ export async function GET(request: Request) {
       });
     }
 
+    // Strictly filter routers by allowedCamps if user has specific camp permissions
+    if (authUser && authUser.allowedCamps && authUser.allowedCamps.length > 0) {
+      const allowedLower = authUser.allowedCamps.map((c) => c.toLowerCase());
+      dbRouters = dbRouters.filter((r) => {
+        const campLower = (r.camp || r.sessionName || "").toLowerCase();
+        return allowedLower.includes(campLower);
+      });
+    }
+
     // Merge with env-configured routers if any (env routers default to verified, only for Super Admin or when matching)
     let envRouters: any[] = [];
     if (isMikrotikConfigured() && (!companyFilter || !companyFilter.trim())) {
