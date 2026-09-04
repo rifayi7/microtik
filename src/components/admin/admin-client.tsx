@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Building2,
   DollarSign,
@@ -89,8 +90,22 @@ interface CampWithCompany {
 }
 
 export function AdminClient() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("users");
   const [loading, setLoading] = useState(true);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(true);
+
+  // Role Protection Check: Only Superadmin can access Admin Hub
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const role = localStorage.getItem("admin_user_role");
+      if (role === "company_admin") {
+        setIsSuperAdmin(false);
+        toast.error("Access Denied: Admin Hub is restricted to Super Administrator.");
+        router.replace("/dashboard");
+      }
+    }
+  }, [router]);
 
   // Users State
   const [users, setUsers] = useState<AdminUser[]>([]);

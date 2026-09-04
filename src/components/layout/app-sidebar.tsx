@@ -65,9 +65,19 @@ export function AppSidebar() {
   const { isConnected, activeRouter, routers, connectRouter, disconnectRouter } =
     useRouterContext();
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
-  const [showSignoutModal, setShowSignoutModal] = useState(false);
+  const [userRole, setUserRole] = useState<string>("superadmin");
 
-  const navigation = isConnected ? connectedNavigation : setupNavigation;
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const role = localStorage.getItem("admin_user_role") || "superadmin";
+      setUserRole(role);
+    }
+  }, []);
+
+  const baseNav = isConnected ? connectedNavigation : setupNavigation;
+  const navigation = userRole === "company_admin"
+    ? baseNav.filter((item) => item.href !== "/admin")
+    : baseNav;
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
