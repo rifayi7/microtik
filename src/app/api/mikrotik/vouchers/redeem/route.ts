@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { parseRouterFromBody, resolveRouterFromRequestSync } from "@/lib/mikrotik/resolve-router";
 import { updateOrCreateHotspotUser } from "@/lib/mikrotik/queries";
-import { getDubaiTimestamp } from "@/lib/utils";
+import { getDubaiTimestamp, getDubaiSoldDate } from "@/lib/utils";
 import { extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
@@ -144,7 +144,8 @@ export async function POST(request: Request) {
       const username = selectedVoucherCode;
       const password = selectedVoucherCode;
       const profile = `${validityDaysNum}-Days`;
-      const comment = `Mobile: ${mobileNumber}${resolvedSoldBy ? ` | Sold by: ${resolvedSoldBy}` : ""}`;
+      const soldDateStr = getDubaiSoldDate();
+      const comment = `Sold on ${soldDateStr}`;
 
       try {
         await updateOrCreateHotspotUser(config, username, password, profile, comment);
@@ -323,7 +324,8 @@ export async function POST(request: Request) {
         }
 
         // Update the user comment on MikroTik
-        const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
+        const soldDateStr = getDubaiSoldDate();
+        const comment = `Sold on ${soldDateStr}`;
         try {
           await withMikrotikClient(toConnectionParams(config), async (client) => {
             await client.write("/ip/hotspot/user/set", [
@@ -357,7 +359,8 @@ export async function POST(request: Request) {
         const username = finalVoucherCode;
         const password = finalVoucherCode;
         const profile = `${validityDaysNum}-Days`;
-        const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
+        const soldDateStr = getDubaiSoldDate();
+        const comment = `Sold on ${soldDateStr}`;
 
         try {
           await updateOrCreateHotspotUser(config, username, password, profile, comment);
@@ -500,7 +503,8 @@ export async function POST(request: Request) {
 
       // Update/Create on RouterOS
       const profile = `${validityDaysNum}-Days`;
-      const comment = `Mobile: ${mobileNumber}${salesperson ? ` | Sold by: ${salesperson}` : ""}`;
+      const soldDateStr = getDubaiSoldDate();
+      const comment = `Sold on ${soldDateStr}`;
       
       try {
         await updateOrCreateHotspotUser(config, code, code, profile, comment);

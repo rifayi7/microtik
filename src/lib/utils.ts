@@ -25,3 +25,17 @@ export function getDubaiTimestamp(date: Date = new Date()): string {
 
   return `${getPart("year")}-${getPart("month")}-${getPart("day")} ${getPart("hour")}:${getPart("minute")}:${getPart("second")}`;
 }
+
+/**
+ * Returns current date formatted as 'M/D/YYYY' in Asia/Dubai time (e.g. '9/5/2026')
+ */
+export function getDubaiSoldDate(date: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Dubai",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+
+  return formatter.format(date);
+}
