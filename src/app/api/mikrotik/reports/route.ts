@@ -46,18 +46,34 @@ async function handleRequest(request: Request) {
       }
     }
 
-    // Build dynamic WHERE clause
-    const conditions: string[] = ["v.status = 'redeemed'"];
-    const args: any[] = [];
+    let allowedCamps: string[] = authUser?.allowedCamps || [];
 
-    if (company && company.trim()) {
+    // If allowedCamps not in JWT, check from database for the salesperson
+    if (allowedCamps.length === 0 && (salesPersonId || salesperson)) {
+      const spRes = await db.execute({
+        sql: "SELECT allowed_camps, camp_name FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
+        args: [salesPersonId || -1, salesperson || "", salesperson || ""],
+      });
+      if (spRes.rows.length > 0) {
+        const spRow = spRes.rows[0];
+        if (spRow.allowed_camps) {
+          try {
+            allowedCamps = JSON.parse(String(spRow.allowed_camps));
+          } catch {
+            allowedCamps = [String(spRow.allowed_camps)];
+          }
+        } else if (spRow.camp_name && spRow.camp_name !== "All Camps") {
+          allowedCamps = [String(spRow.camp_name)];
+        }
+      }
+    }
+
+    if (allowedCamps.length > 0) {
       conditions.push(`v.router_id IN (
         SELECT r.id FROM routers r 
-        WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (
-          SELECT LOWER(name) FROM camps WHERE LOWER(company_name) = LOWER(?)
-        )
+        WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${allowedCamps.map(() => '?').join(',')})
       )`);
-      args.push(company.trim());
+      args.push(...allowedCamps.map((c) => c.toLowerCase()));
     }
 
     if (routerId && routerId.trim() !== "") {
