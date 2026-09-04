@@ -3,12 +3,14 @@ import { getDB } from "@/lib/db";
 import { parseRouterFromBody, resolveRouterFromRequestSync } from "@/lib/mikrotik/resolve-router";
 import { updateOrCreateHotspotUser } from "@/lib/mikrotik/queries";
 import { getDubaiTimestamp } from "@/lib/utils";
+import { extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const db = await getDB();
   const nowDubai = getDubaiTimestamp();
+  const authUser = extractAuthToken(request);
   let selectedVoucherCode: string | null = null;
   let finalVoucherCode: string | null = null;
   let validityDaysNum = 0;
@@ -31,9 +33,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Mobile number is required" }, { status: 400 });
     }
 
-    // Resolve salesperson ID and display name
-    let resolvedSalesPersonId: number | null = salesPersonId ? Number(salesPersonId) : null;
-    let resolvedSoldBy: string | null = salesperson ? String(salesperson).trim() : null;
+    // Resolve salesperson ID and display name from trusted JWT if available, else from body
+    let resolvedSalesPersonId: number | null = authUser?.userId ? Number(authUser.userId) : (salesPersonId ? Number(salesPersonId) : null);
+    let resolvedSoldBy: string | null = authUser?.displayName ? String(authUser.displayName) : (authUser?.sub ? String(authUser.sub) : (salesperson ? String(salesperson).trim() : null));
 
     if (!resolvedSalesPersonId && resolvedSoldBy) {
       try {
