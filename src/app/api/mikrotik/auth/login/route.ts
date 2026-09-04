@@ -20,8 +20,8 @@ export async function POST(request: Request) {
 
     const database = await getDB();
     const result = await database.execute({
-      sql: "SELECT id, username, password, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE username = ?",
-      args: [username.trim()],
+      sql: "SELECT id, username, password, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE LOWER(username) = LOWER(?) OR LOWER(display_name) = LOWER(?) LIMIT 1",
+      args: [username.trim(), username.trim()],
     });
 
     if (result.rows.length === 0) {
