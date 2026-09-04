@@ -27,9 +27,14 @@ export async function GET() {
 
     // 2. Get all distinct registered camps with their companies
     const campsResult = await database.execute(`
-      SELECT DISTINCT name, company_name FROM camps WHERE name IS NOT NULL AND name != ''
+      SELECT DISTINCT c.name, c.company_name 
+      FROM camps c 
+      WHERE c.name IS NOT NULL AND c.name != ''
       UNION
-      SELECT DISTINCT COALESCE(camp, sessionName) as name, NULL as company_name FROM routers WHERE COALESCE(camp, sessionName) IS NOT NULL
+      SELECT DISTINCT COALESCE(r.camp, r.sessionName) as name, c2.company_name
+      FROM routers r
+      LEFT JOIN camps c2 ON LOWER(c2.name) = LOWER(COALESCE(r.camp, r.sessionName))
+      WHERE COALESCE(r.camp, r.sessionName) IS NOT NULL
     `);
     const registeredCamps = Array.from(new Set(campsResult.rows.map((r) => String(r.name))));
     const campsWithCompany = campsResult.rows.map((r) => ({
@@ -37,15 +42,17 @@ export async function GET() {
       companyName: r.company_name ? String(r.company_name) : null,
     }));
 
-    // 3. Get distinct companies
+    // 3. Get distinct companies (from companies table, camps table, and company_admins table)
     const compResult = await database.execute(`
       SELECT DISTINCT name FROM companies WHERE name IS NOT NULL AND name != ''
       UNION
       SELECT DISTINCT company_name as name FROM camps WHERE company_name IS NOT NULL AND company_name != ''
+      UNION
+      SELECT DISTINCT company_name as name FROM company_admins WHERE company_name IS NOT NULL AND company_name != ''
     `);
     const companies = Array.from(new Set(compResult.rows.map((r) => String(r.name))));
     if (companies.length === 0) {
-      companies.push("Apricom DXB", "Apricom KSA");
+      companies.push("apricom", "test-company");
     }
 
     // 4. Get distinct validity profile names

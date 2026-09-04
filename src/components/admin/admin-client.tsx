@@ -208,14 +208,14 @@ export function AdminClient() {
     void loadData();
   }, [loadData]);
 
-  // Handle salesperson camp options filtered by company (deduplicate camp names)
+  // Handle salesperson camp options filtered strictly by company (camps only visible after selecting a company)
   const availableCampsForSelectedCompany = Array.from(
     new Set(
-      newUserCompany
+      newUserCompany && newUserCompany.trim() !== ""
         ? campsWithCompany
-            .filter((c) => !c.companyName || c.companyName.toLowerCase() === newUserCompany.toLowerCase())
+            .filter((c) => c.companyName && c.companyName.toLowerCase() === newUserCompany.toLowerCase())
             .map((c) => c.name)
-        : registeredCamps
+        : []
     )
   );
 
@@ -242,9 +242,15 @@ export function AdminClient() {
   };
 
   const toggleAllowedCamp = (campName: string) => {
-    setNewUserAllowedCamps((prev) =>
-      prev.includes(campName) ? prev.filter((c) => c !== campName) : [...prev, campName]
-    );
+    setNewUserAllowedCamps((prev) => {
+      const lower = campName.toLowerCase();
+      const exists = prev.some((c) => c.toLowerCase() === lower);
+      if (exists) {
+        return prev.filter((c) => c.toLowerCase() !== lower);
+      } else {
+        return [...prev, campName];
+      }
+    });
   };
 
   // Handle Save or Update User
@@ -1001,31 +1007,28 @@ export function AdminClient() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="companyInput">Company Name</Label>
-                  <Input
-                    id="companyInput"
-                    list="companies-suggestions"
-                    placeholder="Type new or select existing..."
-                    value={newUserCompany}
-                    onChange={(e) => setNewUserCompany(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="role">Account Role</Label>
-                  <Select value={newUserRole} onValueChange={(v) => v && setNewUserRole(v)}>
-                    <SelectTrigger id="role">
-                      <SelectValue placeholder="Select role" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="salesperson">Salesperson (Mobile App)</SelectItem>
-                      <SelectItem value="admin">Administrator (Full Access)</SelectItem>
-                      <SelectItem value="operator">Operator (Recharge Only)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="companySelect">Assigned Company</Label>
+                <Select
+                  value={newUserCompany || "NONE"}
+                  onValueChange={(v) => {
+                    const selectedComp = v === "NONE" ? "" : v;
+                    setNewUserCompany(selectedComp);
+                    setNewUserAllowedCamps([]); // Clear previously selected camps when company changes
+                  }}
+                >
+                  <SelectTrigger id="companySelect">
+                    <SelectValue placeholder="Select company" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">-- No Company (Global) --</SelectItem>
+                    {companiesList.map((comp) => (
+                      <SelectItem key={comp} value={comp}>
+                        {comp}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Granular Camp Access Checkboxes */}
@@ -1057,17 +1060,24 @@ export function AdminClient() {
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-40 overflow-y-auto">
-                  {availableCampsForSelectedCompany.length === 0 ? (
-                    <div className="col-span-2 text-xs text-muted-foreground py-2">
-                      No camps registered under {newUserCompany || "this company"}.
+                  {!newUserCompany ? (
+                    <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
+                      👈 Please select a company above to view and assign its camps.
+                    </div>
+                  ) : availableCampsForSelectedCompany.length === 0 ? (
+                    <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
+                      No camps are registered under <strong>{newUserCompany}</strong>.
                     </div>
                   ) : (
                     availableCampsForSelectedCompany.map((camp) => {
-                      const isChecked = newUserAllowedCamps.includes(camp);
+                      const isChecked = newUserAllowedCamps.some(
+                        (c) => c.toLowerCase() === camp.toLowerCase()
+                      );
                       return (
-                        <label
+                        <div
                           key={camp}
-                          className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer transition-all ${
+                          onClick={() => toggleAllowedCamp(camp)}
+                          className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer select-none transition-all ${
                             isChecked
                               ? "bg-blue-50 border-blue-300 text-blue-900 font-semibold dark:bg-blue-950/50 dark:border-blue-700 dark:text-blue-200"
                               : "bg-card border-border text-slate-700 dark:text-slate-300 hover:bg-muted"
@@ -1076,12 +1086,12 @@ export function AdminClient() {
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onChange={() => toggleAllowedCamp(camp)}
-                            className="size-4 rounded border-gray-300 text-[#4A60D6] focus:ring-[#4A60D6]"
+                            onChange={() => {}} // Handled by parent div onClick
+                            className="size-4 rounded border-gray-300 text-[#4A60D6] pointer-events-none"
                           />
                           <Building2 className="size-3.5 text-muted-foreground" />
                           <span className="truncate">{camp}</span>
-                        </label>
+                        </div>
                       );
                     })
                   )}
