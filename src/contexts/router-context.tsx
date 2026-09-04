@@ -80,11 +80,9 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
       if (activeId && mapped.some((m) => m.id === activeId)) {
         const found = mapped.find((item) => item.id === activeId) ?? null;
         setActiveRouter(found);
-      } else if (mapped.length > 0) {
-        setActiveRouter(mapped[0]);
-        saveActiveRouterId(mapped[0].id);
       } else {
         setActiveRouter(null);
+        saveActiveRouterId(null);
       }
     } catch (err) {
       console.warn("Failed to load routers from server database. Using offline cache.", err);

@@ -114,17 +114,20 @@ export async function GET(request: Request) {
       }
     }
 
-    // Fetch allowed camps for this user if applicable
+    // Fetch latest live allowed camps and company for this user from database
     let userAllowedCamps: string[] = [];
-    if (authUser && authUser.allowedCamps && authUser.allowedCamps.length > 0) {
-      userAllowedCamps = authUser.allowedCamps.map((c) => c.toLowerCase());
-    } else if (targetUserId) {
+    if (targetUserId || targetUsername || authUser?.userId || authUser?.sub) {
+      const lookupId = targetUserId || authUser?.userId || -1;
+      const lookupName = targetUsername || authUser?.sub || "";
       const spRes = await database.execute({
-        sql: "SELECT camp_name, allowed_camps FROM sales_persons WHERE id = ?",
-        args: [targetUserId],
+        sql: "SELECT camp_name, company_name, allowed_camps FROM sales_persons WHERE id = ? OR username = ? OR display_name = ?",
+        args: [lookupId, lookupName, lookupName],
       });
       if (spRes.rows.length > 0) {
         const spRow = spRes.rows[0];
+        if (spRow.company_name && !companyParam) {
+          companyParam = String(spRow.company_name);
+        }
         if (spRow.allowed_camps) {
           try {
             const parsed = JSON.parse(String(spRow.allowed_camps));
@@ -134,6 +137,10 @@ export async function GET(request: Request) {
           userAllowedCamps = [String(spRow.camp_name).toLowerCase()];
         }
       }
+    }
+
+    if (userAllowedCamps.length === 0 && authUser?.allowedCamps && authUser.allowedCamps.length > 0) {
+      userAllowedCamps = authUser.allowedCamps.map((c) => c.toLowerCase());
     }
 
     // 2. Get sales counts and revenue amounts per router/camp

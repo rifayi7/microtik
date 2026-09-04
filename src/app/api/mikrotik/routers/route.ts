@@ -18,28 +18,31 @@ export async function GET(request: Request) {
 
     const database = await getDB();
 
-    // If no JWT token was provided in header, resolve salesperson permissions from database by ID or username
-    if (!authUser && (salespersonParam || salesPersonIdParam)) {
+    // Dynamically query latest allowed_camps and company from DB if we have authUser or query params
+    const lookupUserId = authUser?.userId || (salesPersonIdParam ? Number(salesPersonIdParam) : null);
+    const lookupUsername = authUser?.sub || (salespersonParam ? String(salespersonParam).trim() : null);
+
+    if (lookupUserId || lookupUsername) {
       const spRes = await database.execute({
-        sql: "SELECT id, username, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE CAST(id AS TEXT) = ? OR username = ? OR display_name = ?",
+        sql: "SELECT id, username, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE id = ? OR username = ? OR display_name = ?",
         args: [
-          salesPersonIdParam ? String(salesPersonIdParam) : "-1",
-          salespersonParam ? String(salespersonParam).trim() : "-1",
-          salespersonParam ? String(salespersonParam).trim() : "-1",
+          lookupUserId ? Number(lookupUserId) : -1,
+          lookupUsername ? String(lookupUsername) : "-1",
+          lookupUsername ? String(lookupUsername) : "-1",
         ],
       });
 
       if (spRes.rows.length > 0) {
         const row = spRes.rows[0];
-        let allowedCamps: string[] = [];
+        let liveAllowedCamps: string[] = [];
         if (row.allowed_camps) {
           try {
-            allowedCamps = JSON.parse(String(row.allowed_camps));
+            liveAllowedCamps = JSON.parse(String(row.allowed_camps));
           } catch {
-            allowedCamps = [String(row.allowed_camps)];
+            liveAllowedCamps = [String(row.allowed_camps)];
           }
         } else if (row.camp_name && row.camp_name !== "All Camps") {
-          allowedCamps = [String(row.camp_name)];
+          liveAllowedCamps = [String(row.camp_name)];
         }
 
         authUser = {
@@ -48,9 +51,18 @@ export async function GET(request: Request) {
           displayName: String(row.display_name || row.username),
           role: String(row.role || "salesperson"),
           companyName: row.company_name ? String(row.company_name) : null,
-          allowedCamps,
+          allowedCamps: liveAllowedCamps,
         };
       }
+    }
+
+    // STRICT SECURITY: If no authenticated user, no valid company, and no allowed camps could be resolved,
+    // do NOT leak all multi-tenant routers to unauthenticated clients.
+    if (!authUser && !companyFilter) {
+      return NextResponse.json(
+        { error: "Authentication required to access routers list", routers: [], configured: false },
+        { status: 401 }
+      );
     }
 
     // Strictly enforce company if JWT token or resolved user represents a company user

@@ -82,7 +82,9 @@ async function handleRequest(request: Request) {
       }
     }
 
-    if (allowedCamps.length > 0) {
+    // If querying general reports without a specific salesperson, filter by allowedCamps
+    const isSpecificSalesperson = Boolean(salesPersonId || (salesperson && salesperson.trim() !== ""));
+    if (!isSpecificSalesperson && allowedCamps.length > 0) {
       conditions.push(`v.router_id IN (
         SELECT r.id FROM routers r 
         WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${allowedCamps.map(() => '?').join(',')})
