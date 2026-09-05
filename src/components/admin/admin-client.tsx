@@ -51,19 +51,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchMikrotikApi } from "@/lib/api/client";
 
 interface AdminUser {
-  id: number;
+  id: string | number;
   username: string;
   displayName: string;
   password: string;
   role: string;
   campName: string;
   companyName: string;
+  companyId?: string | number | null;
   allowedCamps: string[];
+  allowedRouterIds?: string[];
   createdAt: string;
 }
 
 interface CampPricing {
-  id: number;
+  id: string | number;
   campName: string;
   validityName: string;
   companyName: string;
@@ -72,15 +74,16 @@ interface CampPricing {
 }
 
 interface CompanyAdmin {
-  id: number;
+  id: string | number;
   username: string;
   companyName: string;
+  companyId?: string | number | null;
   role: string;
   createdAt: string;
 }
 
 interface CompanyItem {
-  id: number;
+  id: string | number;
   name: string;
 }
 

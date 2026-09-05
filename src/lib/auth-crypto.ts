@@ -47,10 +47,10 @@ export function needsRehash(storedPassword: string): boolean {
 
 export interface JwtAuthPayload {
   sub: string; // username or user id
-  userId?: number;
+  userId?: string | number;
   displayName?: string;
   role: "superadmin" | "company_admin" | "salesperson" | string;
-  companyId?: number | null;
+  companyId?: string | number | null;
   companyName?: string | null;
   allowedCamps?: string[];
   allowedRouterIds?: string[];
