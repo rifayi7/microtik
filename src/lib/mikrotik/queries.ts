@@ -196,7 +196,39 @@ export async function fetchHotspotUsersForRouter(
   const records = await withMikrotikClient(toConnectionParams(config), (client) =>
     mikrotikPrint(client, "/ip/hotspot/user/print")
   );
-  return records.map((record) => mapHotspotUser(record, config));
+  const routerUsers = records.map((record) => mapHotspotUser(record, config));
+
+  try {
+    const db = await getDB();
+    const dbVouchers = await db.execute({
+      sql: `SELECT voucher_code, status, sold_by, used_by, used_at, price_charged 
+            FROM vouchers 
+            WHERE router_id = ? OR router_id = ?`,
+      args: [config.id, config.sessionName],
+    });
+
+    const voucherMap = new Map<string, any>();
+    for (const v of dbVouchers.rows) {
+      voucherMap.set(String(v.voucher_code).toLowerCase(), v);
+    }
+
+    for (const user of routerUsers) {
+      const v = voucherMap.get(user.username.toLowerCase());
+      if (v) {
+        user.voucherStatus = (v.status as any) || "available";
+        user.soldBy = v.sold_by ? String(v.sold_by) : undefined;
+        user.usedBy = v.used_by ? String(v.used_by) : undefined;
+        user.usedAt = v.used_at ? String(v.used_at) : undefined;
+        user.priceCharged = v.price_charged ? Number(v.price_charged) : undefined;
+      } else {
+        user.voucherStatus = "available";
+      }
+    }
+  } catch (err) {
+    console.error("Failed to enrich hotspot users with voucher statuses:", err);
+  }
+
+  return routerUsers;
 }
 
 export async function fetchUserProfilesForRouter(

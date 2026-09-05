@@ -38,6 +38,11 @@ export interface HotspotUser {
   bytesIn?: string;
   bytesOut?: string;
   comment?: string;
+  voucherStatus?: "available" | "redeemed" | "disabled" | "expired";
+  soldBy?: string;
+  usedBy?: string;
+  usedAt?: string;
+  priceCharged?: number;
 }
 
 export interface HotspotHost {

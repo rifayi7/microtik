@@ -283,21 +283,131 @@ export function HotspotUsersView() {
     }
   };
 
+  const [statusFilter, setStatusFilter] = useState<"all" | "available" | "redeemed" | "disabled">("all");
+
+  const counts = useMemo(() => {
+    let available = 0;
+    let redeemed = 0;
+    let disabled = 0;
+
+    for (const u of users) {
+      if (u.voucherStatus === "redeemed") {
+        redeemed++;
+      } else if (u.status === "disabled" || u.voucherStatus === "disabled") {
+        disabled++;
+      } else {
+        available++;
+      }
+    }
+
+    return { all: users.length, available, redeemed, disabled };
+  }, [users]);
+
   const filtered = useMemo(() => {
-    return users.filter(
-      (user) =>
-        user.username.toLowerCase().includes(search.toLowerCase()) ||
-        user.profile.toLowerCase().includes(search.toLowerCase()) ||
-        (user.comment ?? "").toLowerCase().includes(search.toLowerCase())
-    );
-  }, [users, search]);
+    return users.filter((user) => {
+      // Status filtering
+      if (statusFilter === "redeemed" && user.voucherStatus !== "redeemed") return false;
+      if (statusFilter === "available" && (user.voucherStatus === "redeemed" || user.status === "disabled" || user.voucherStatus === "disabled")) return false;
+      if (statusFilter === "disabled" && (user.status !== "disabled" && user.voucherStatus !== "disabled")) return false;
+
+      // Text search
+      const q = search.toLowerCase();
+      return (
+        user.username.toLowerCase().includes(q) ||
+        user.profile.toLowerCase().includes(q) ||
+        (user.comment ?? "").toLowerCase().includes(q) ||
+        (user.usedBy ?? "").toLowerCase().includes(q) ||
+        (user.soldBy ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [users, search, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
 
+  // Filter out any redeemed/protected users when selecting all on page
+  const selectablePageItems = useMemo(() => {
+    return pageItems.filter((u) => u.voucherStatus !== "redeemed");
+  }, [pageItems]);
+
   return (
     <div className="toetik-panel space-y-4">
       <HotspotTabs />
+
+      {/* Sub-Tabs for Voucher State: All, Available, Recharged, Disabled */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b pb-3 text-sm">
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("all");
+            setPage(1);
+          }}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+            statusFilter === "all"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          All
+          <span className="rounded-full bg-black/10 px-1.5 py-0.2 text-xs dark:bg-white/20">
+            {counts.all}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("available");
+            setPage(1);
+          }}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+            statusFilter === "available"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          Available (Unused)
+          <span className="rounded-full bg-black/10 px-1.5 py-0.2 text-xs dark:bg-white/20">
+            {counts.available}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("redeemed");
+            setPage(1);
+          }}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+            statusFilter === "redeemed"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          Recharged / Sold
+          <span className="rounded-full bg-black/10 px-1.5 py-0.2 text-xs dark:bg-white/20">
+            {counts.redeemed}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setStatusFilter("disabled");
+            setPage(1);
+          }}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+            statusFilter === "disabled"
+              ? "bg-amber-600 text-white shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          Disabled
+          <span className="rounded-full bg-black/10 px-1.5 py-0.2 text-xs dark:bg-white/20">
+            {counts.disabled}
+          </span>
+        </button>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded border bg-white px-3 py-1 text-sm font-semibold dark:bg-card">
@@ -310,7 +420,7 @@ export function HotspotUsersView() {
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="bg-white dark:bg-card pl-8"
-            placeholder="Search..."
+            placeholder="Search code, mobile, seller..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -321,8 +431,9 @@ export function HotspotUsersView() {
         <Button variant="outline" size="icon-sm" className="bg-white dark:bg-card">
           <Filter className="size-4" />
         </Button>
-        {/* Delete Selected (Bulk / Marked) Button */}
-        {selectedUserIds.size > 0 && (
+
+        {/* Delete Selected (Bulk / Marked) Button - only shows if selectable codes are marked and not on Recharged tab */}
+        {statusFilter !== "redeemed" && selectedUserIds.size > 0 && (
           <Button
             variant="destructive"
             size="sm"
@@ -351,25 +462,35 @@ export function HotspotUsersView() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/60">
-                {/* Select All on Page Checkbox */}
-                <TableHead className="w-10 text-center">
-                  <button
-                    type="button"
-                    onClick={() => toggleSelectAllPage(pageItems.map((u) => u.id))}
-                    className="text-muted-foreground hover:text-foreground transition-colors p-1"
-                    title="Select all on this page"
-                  >
-                    {pageItems.length > 0 &&
-                    pageItems.every((u) => selectedUserIds.has(u.id)) ? (
-                      <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
+                {/* Select All on Page Checkbox (Hidden in Recharged tab) */}
+                {statusFilter !== "redeemed" && (
+                  <TableHead className="w-10 text-center">
+                    {selectablePageItems.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectAllPage(selectablePageItems.map((u) => u.id))}
+                        className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                        title="Select all deletable codes on this page"
+                      >
+                        {selectablePageItems.every((u) => selectedUserIds.has(u.id)) ? (
+                          <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
+                        ) : (
+                          <Square className="size-4" />
+                        )}
+                      </button>
                     ) : (
-                      <Square className="size-4" />
+                      <Square className="size-4 opacity-30 cursor-not-allowed" />
                     )}
-                  </button>
-                </TableHead>
-                <TableHead className="w-10">Action</TableHead>
-                <TableHead>Server</TableHead>
-                <TableHead>Name</TableHead>
+                  </TableHead>
+                )}
+                {/* Action Column (Hidden in Recharged tab) */}
+                {statusFilter !== "redeemed" && (
+                  <TableHead className="w-12 text-center">Action</TableHead>
+                )}
+                <TableHead>Status</TableHead>
+                <TableHead>Code / Username</TableHead>
+                <TableHead>Customer Mobile</TableHead>
+                <TableHead>Salesperson</TableHead>
                 <TableHead>Profile</TableHead>
                 <TableHead>MAC Address</TableHead>
                 <TableHead>Uptime</TableHead>
@@ -379,52 +500,104 @@ export function HotspotUsersView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pageItems.map((user, index) => {
-                const isSelected = selectedUserIds.has(user.id);
-                return (
-                  <TableRow
-                    key={user.id}
-                    className={`${isSelected ? "bg-blue-50/60 dark:bg-blue-950/30" : index % 2 ? "bg-muted/20" : ""}`}
-                  >
-                    {/* Individual Row Checkbox */}
-                    <TableCell className="text-center">
-                      <button
-                        type="button"
-                        onClick={() => toggleSelectUser(user.id)}
-                        className="text-muted-foreground hover:text-foreground transition-colors p-1"
-                      >
-                        {isSelected ? (
-                          <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
+              {pageItems.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={statusFilter === "redeemed" ? 10 : 12} className="text-center py-8 text-muted-foreground">
+                    No hotspot vouchers found for the current filter.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pageItems.map((user, index) => {
+                  const isSelected = selectedUserIds.has(user.id);
+                  const isRedeemed = user.voucherStatus === "redeemed";
+                  const isDisabled = user.status === "disabled" || user.voucherStatus === "disabled";
+
+                  return (
+                    <TableRow
+                      key={user.id}
+                      className={`${
+                        isSelected
+                          ? "bg-blue-50/60 dark:bg-blue-950/30"
+                          : isRedeemed
+                          ? "bg-emerald-50/20 dark:bg-emerald-950/10"
+                          : index % 2
+                          ? "bg-muted/20"
+                          : ""
+                      }`}
+                    >
+                      {/* Individual Row Checkbox (Hidden in Recharged tab, empty placeholder if 'all') */}
+                      {statusFilter !== "redeemed" && (
+                        <TableCell className="text-center">
+                          {isRedeemed ? (
+                            <span className="inline-block w-4 h-4" />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => toggleSelectUser(user.id)}
+                              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <Square className="size-4" />
+                              )}
+                            </button>
+                          )}
+                        </TableCell>
+                      )}
+
+                      {/* Delete Individual Row (Hidden in Recharged tab, empty placeholder if 'all') */}
+                      {statusFilter !== "redeemed" && (
+                        <TableCell className="text-center">
+                          {isRedeemed ? (
+                            <span className="inline-block w-4 h-4" />
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => handleSingleDelete(user)}
+                              title={`Delete ${user.username} from MikroTik & DB`}
+                              className="hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                            >
+                              <Trash2 className="size-3.5 text-red-500" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      )}
+
+                      {/* Status Badge */}
+                      <TableCell>
+                        {isRedeemed ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Recharged
+                          </span>
+                        ) : isDisabled ? (
+                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                            Disabled
+                          </span>
                         ) : (
-                          <Square className="size-4" />
+                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                            Available
+                          </span>
                         )}
-                      </button>
-                    </TableCell>
-                    {/* Delete Individual Row */}
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => handleSingleDelete(user)}
-                        title={`Delete ${user.username} from MikroTik & DB`}
-                        className="hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                      >
-                        <Trash2 className="size-3.5 text-red-500" />
-                      </Button>
-                    </TableCell>
-                    <TableCell>{user.server ?? "all"}</TableCell>
-                    <TableCell className="font-medium font-mono">{user.username}</TableCell>
-                    <TableCell>{user.profile}</TableCell>
-                    <TableCell className="font-mono text-xs">{user.macAddress || "—"}</TableCell>
-                    <TableCell>{user.uptime}</TableCell>
-                    <TableCell>{user.bytesIn ?? user.dataUsed}</TableCell>
-                    <TableCell>{user.bytesOut ?? "—"}</TableCell>
-                    <TableCell className="max-w-[200px] truncate text-muted-foreground">
-                      {user.comment || "—"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+                      </TableCell>
+
+                      <TableCell className="font-medium font-mono font-semibold">{user.username}</TableCell>
+                      <TableCell className="font-mono text-xs">{user.usedBy || "—"}</TableCell>
+                      <TableCell className="text-xs font-medium text-muted-foreground">{user.soldBy || "—"}</TableCell>
+                      <TableCell>{user.profile}</TableCell>
+                      <TableCell className="font-mono text-xs">{user.macAddress || "—"}</TableCell>
+                      <TableCell>{user.uptime}</TableCell>
+                      <TableCell>{user.bytesIn ?? user.dataUsed}</TableCell>
+                      <TableCell>{user.bytesOut ?? "—"}</TableCell>
+                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        {user.comment || "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </div>
