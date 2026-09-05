@@ -213,18 +213,99 @@ export async function initializeDB() {
     await db.execute("ALTER TABLE company_admins ADD COLUMN company_id INTEGER REFERENCES companies(id);");
   } catch (e) {}
 
-  // Check if seeding is required for default router ID '1' (Disabled for clean database)
-  /*
-  const checkResult = await db.execute({
-    sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
-    args: ['1'],
-  });
-  
-  const count = Number(checkResult.rows[0]?.count ?? 0);
-  if (count === 0) {
-    await seedVouchersForRouter('1');
+  // Auto-backfill existing records to populate IDs seamlessly
+  try {
+    // 1. Populate companies table from distinct company names
+    const distinctCompanies = await db.execute(`
+      SELECT DISTINCT name FROM (
+        SELECT company_name as name FROM sales_persons WHERE company_name IS NOT NULL AND TRIM(company_name) != ''
+        UNION
+        SELECT company_name as name FROM camps WHERE company_name IS NOT NULL AND TRIM(company_name) != ''
+        UNION
+        SELECT company_name as name FROM camp_validity_pricing WHERE company_name IS NOT NULL AND TRIM(company_name) != ''
+      )
+    `);
+    for (const r of distinctCompanies.rows) {
+      const compName = String(r.name).trim();
+      if (compName) {
+        await db.execute({
+          sql: "INSERT OR IGNORE INTO companies (name) VALUES (?)",
+          args: [compName],
+        });
+      }
+    }
+
+    // 2. Link company_id on camps
+    await db.execute(`
+      UPDATE camps 
+      SET company_id = (SELECT c.id FROM companies c WHERE LOWER(c.name) = LOWER(camps.company_name) LIMIT 1)
+      WHERE company_name IS NOT NULL AND company_id IS NULL
+    `);
+
+    // 3. Link company_id on routers from camps table
+    await db.execute(`
+      UPDATE routers 
+      SET company_id = (
+        SELECT cmp.company_id FROM camps cmp 
+        WHERE (LOWER(cmp.name) = LOWER(routers.camp) OR LOWER(cmp.hotspot_name) = LOWER(routers.sessionName)) 
+          AND cmp.company_id IS NOT NULL 
+        LIMIT 1
+      )
+      WHERE company_id IS NULL
+    `);
+
+    // 4. Link company_id and sales_person_id on sales_persons and vouchers
+    await db.execute(`
+      UPDATE sales_persons 
+      SET company_id = (SELECT c.id FROM companies c WHERE LOWER(c.name) = LOWER(sales_persons.company_name) LIMIT 1)
+      WHERE company_name IS NOT NULL AND company_id IS NULL
+    `);
+
+    // 5. Backfill allowed_router_ids on sales_persons from their allowed_camps
+    const spRows = await db.execute("SELECT id, allowed_camps, camp_name, allowed_router_ids FROM sales_persons WHERE allowed_router_ids IS NULL");
+    for (const sp of spRows.rows) {
+      let allowedCamps: string[] = [];
+      if (sp.allowed_camps) {
+        try {
+          allowedCamps = JSON.parse(String(sp.allowed_camps));
+        } catch {
+          allowedCamps = [String(sp.allowed_camps)];
+        }
+      } else if (sp.camp_name && sp.camp_name !== "All Camps") {
+        allowedCamps = [String(sp.camp_name)];
+      }
+
+      if (allowedCamps.length > 0) {
+        const rRes = await db.execute("SELECT id, camp, sessionName FROM routers");
+        const matchedIds: string[] = [];
+        for (const r of rRes.rows) {
+          const rId = String(r.id);
+          const rCamp = String(r.camp || "").toLowerCase();
+          const rSess = String(r.sessionName || "").toLowerCase();
+          if (allowedCamps.some((c) => c.toLowerCase() === rCamp || c.toLowerCase() === rSess || c.toLowerCase() === rId.toLowerCase())) {
+            matchedIds.push(rId);
+          }
+        }
+        await db.execute({
+          sql: "UPDATE sales_persons SET allowed_router_ids = ? WHERE id = ?",
+          args: [JSON.stringify(matchedIds), Number(sp.id)],
+        });
+      }
+    }
+
+    // 6. Link vouchers.sales_person_id for existing sales records
+    await db.execute(`
+      UPDATE vouchers 
+      SET sales_person_id = (
+        SELECT sp.id FROM sales_persons sp 
+        WHERE sp.username = vouchers.sold_by OR sp.display_name = vouchers.sold_by 
+        LIMIT 1
+      )
+      WHERE sold_by IS NOT NULL AND sold_by != '' AND sales_person_id IS NULL
+    `);
+  } catch (backfillErr) {
+    console.warn("Auto-backfill of ID links completed with notice:", backfillErr);
   }
-  */
 
   // Automatically clean up expired voucher reservations
   try {
