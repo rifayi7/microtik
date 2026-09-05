@@ -187,7 +187,7 @@ export async function GET(request: Request) {
     const salesSql = isFilteredBySalesperson
       ? `
         SELECT 
-          COALESCE(r.camp, r.sessionName, 'Camp') as campName,
+          COALESCE(NULLIF(r.sessionName, ''), NULLIF(r.camp, ''), 'Camp') as campName,
           r.sessionName as hotspotName,
           r.id as routerId,
           SUM(CASE 

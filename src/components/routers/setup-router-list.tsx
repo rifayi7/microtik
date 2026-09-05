@@ -115,9 +115,8 @@ export function SetupRouterList() {
                   <TableHeader>
                     <TableRow className="bg-muted/60 hover:bg-muted/60">
                       <TableHead className="w-12">#</TableHead>
-                      <TableHead>Session Name</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Hotspot Name</TableHead>
+                      <TableHead>Camp / Session Name</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -132,8 +131,8 @@ export function SetupRouterList() {
                               {router.sessionName}
                             </span>
                           </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
@@ -163,12 +162,6 @@ export function SetupRouterList() {
                                 )}
                               </Button>
                             </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className="inline-flex items-center gap-2">
-                              <Wifi className="size-3.5 text-muted-foreground" />
-                              {router.hotspotName}
-                            </span>
                           </TableCell>
                         </TableRow>
                       ))}

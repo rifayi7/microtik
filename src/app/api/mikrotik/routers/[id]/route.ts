@@ -139,6 +139,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
         serialNumber = connTest.serialNumber ?? "";
       }
 
+      const oldCamp = String(existing.camp ?? existing.sessionName ?? "");
+      const newCamp = body.camp ?? body.sessionName ?? String(existing.camp ?? existing.sessionName ?? "");
+
       await database.execute({
         sql: `
           UPDATE routers SET
@@ -149,10 +152,22 @@ export async function PUT(request: Request, { params }: RouteParams) {
         `,
         args: [
           sessionName, host, port, username, password, useTls,
-          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport,
+          hotspotName, dnsName, currency, newCamp, sessionTimeout, phone, liveReport,
           serialNumber, id
         ]
       });
+
+      // Synchronize camps table if name changed
+      if (oldCamp && newCamp && oldCamp.toLowerCase() !== newCamp.toLowerCase()) {
+        try {
+          await database.execute({
+            sql: "UPDATE camps SET name = ?, hotspot_name = ? WHERE LOWER(name) = LOWER(?) OR LOWER(hotspot_name) = LOWER(?)",
+            args: [newCamp, sessionName, oldCamp, oldCamp],
+          });
+        } catch (e) {
+          console.warn("Could not sync camps table on rename:", e);
+        }
+      }
 
       const updated = {
         id,

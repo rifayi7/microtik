@@ -150,24 +150,14 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-2">
-                <Label htmlFor="hotspotName">Hotspot Name</Label>
-                <Input
-                  id="hotspotName"
-                  value={hotspotName}
-                  onChange={(e) => setHotspotName(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="dnsName">DNS Name</Label>
-                <Input
-                  id="dnsName"
-                  placeholder="smartwifi.net"
-                  value={dnsName}
-                  onChange={(e) => setDnsName(e.target.value)}
-                />
-              </div>
+            <div className="grid gap-2">
+              <Label htmlFor="dnsName">DNS Name</Label>
+              <Input
+                id="dnsName"
+                placeholder="smartwifi.net"
+                value={dnsName}
+                onChange={(e) => setDnsName(e.target.value)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">

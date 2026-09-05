@@ -171,7 +171,7 @@ async function handleRequest(request: Request) {
           v.sold_by as seller, 
           v.price_charged as price,
           v.router_id as routerId,
-          COALESCE(NULLIF(r.camp, ''), NULLIF(r.sessionName, ''), 'Camp') as campName
+          COALESCE(NULLIF(r.sessionName, ''), NULLIF(r.camp, ''), 'Camp') as campName
         FROM vouchers v
         LEFT JOIN routers r ON CAST(r.id AS TEXT) = CAST(v.router_id AS TEXT) OR r.sessionName = v.router_id
         ${whereClause}
