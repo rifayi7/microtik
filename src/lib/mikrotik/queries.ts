@@ -203,8 +203,10 @@ export async function fetchHotspotUsersForRouter(
     const dbVouchers = await db.execute({
       sql: `SELECT voucher_code, status, sold_by, used_by, used_at, price_charged 
             FROM vouchers 
-            WHERE router_id = ? OR router_id = ?`,
-      args: [config.id, config.sessionName],
+            WHERE router_id = ? OR router_id = ? OR router_id IN (
+              SELECT id FROM routers WHERE sessionName = ? OR camp = ?
+            )`,
+      args: [config.id, config.sessionName, config.sessionName, config.camp ?? config.sessionName],
     });
 
     const voucherMap = new Map<string, any>();
@@ -214,12 +216,16 @@ export async function fetchHotspotUsersForRouter(
 
     for (const user of routerUsers) {
       const v = voucherMap.get(user.username.toLowerCase());
+      const hasSoldComment = typeof user.comment === "string" && /^sold on/i.test(user.comment.trim());
+
       if (v) {
-        user.voucherStatus = (v.status as any) || "available";
+        user.voucherStatus = (v.status as any) || (hasSoldComment ? "redeemed" : "available");
         user.soldBy = v.sold_by ? String(v.sold_by) : undefined;
         user.usedBy = v.used_by ? String(v.used_by) : undefined;
         user.usedAt = v.used_at ? String(v.used_at) : undefined;
         user.priceCharged = v.price_charged ? Number(v.price_charged) : undefined;
+      } else if (hasSoldComment) {
+        user.voucherStatus = "redeemed";
       } else {
         user.voucherStatus = "available";
       }

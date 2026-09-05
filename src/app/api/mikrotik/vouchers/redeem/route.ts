@@ -167,7 +167,7 @@ export async function POST(request: Request) {
               resolvedSoldBy || null,
               resolvedSalesPersonId ? Number(resolvedSalesPersonId) : null,
               Number(priceCharged) || 0,
-              config.id ? Number(config.id) : null,
+              config.id ? String(config.id) : null,
               errMsg,
               selectedVoucherCode
             ]
@@ -197,7 +197,7 @@ export async function POST(request: Request) {
               resolvedSoldBy || null,
               resolvedSalesPersonId ? Number(resolvedSalesPersonId) : null,
               Number(priceCharged) || 0,
-              config.id ? Number(config.id) : null,
+              config.id ? String(config.id) : null,
               selectedVoucherCode
             ]
           });
