@@ -693,8 +693,8 @@ export async function generateHotspotUsers(
 
   // 2. Generate unique codes
   const newItems: { username: string; password: string }[] = [];
-  const rawPool = params.characters || "5ab2c34d";
-  const charPool = CHARACTER_SETS[rawPool] || rawPool || "23456789abcdefghijkmnpqrstuvwxyz";
+  const rawPool = params.characters || "1234";
+  const charPool = CHARACTER_SETS[rawPool] || rawPool || "123456789";
   const prefix = params.prefix || "";
   const lengthToGen = Math.max(1, params.nameLength - prefix.length);
 
@@ -882,4 +882,90 @@ export async function syncRouterUsersToDb(
     `[sync] router=${config.sessionName} synced=${upsertStatements.length} removed=${orphans.length}`
   );
   return { synced: upsertStatements.length, removed: orphans.length };
+}
+
+/**
+ * Deletes one or multiple hotspot users from MikroTik RouterOS
+ * and purges matching available/disabled rows from the vouchers DB table.
+ */
+export async function removeHotspotUsersFromRouter(
+  config: MikrotikRouterConfig,
+  usernamesOrIds: string[]
+): Promise<{ deletedCount: number }> {
+  if (!usernamesOrIds || usernamesOrIds.length === 0) {
+    return { deletedCount: 0 };
+  }
+
+  const deletedUsernames: string[] = [];
+
+  // 1. Remove from MikroTik live RouterOS
+  await withMikrotikClient(toConnectionParams(config), async (client) => {
+    for (const item of usernamesOrIds) {
+      try {
+        let userId = item;
+        let userName = item;
+
+        // If not starting with "*", find by name
+        if (!item.startsWith("*")) {
+          const records = (await client.write("/ip/hotspot/user/print", [
+            `?name=${item}`,
+          ])) as RouterOSRecord[];
+          if (records.length > 0 && records[0][".id"]) {
+            userId = records[0][".id"];
+            userName = records[0]["name"] || item;
+          } else {
+            // Already deleted from router
+            deletedUsernames.push(item);
+            continue;
+          }
+        } else {
+          const records = (await client.write("/ip/hotspot/user/print", [
+            `?.id=${item}`,
+          ])) as RouterOSRecord[];
+          if (records.length > 0) {
+            userName = records[0]["name"] || item;
+          }
+        }
+
+        // Drop any active session for this user
+        try {
+          const activeRecs = (await client.write("/ip/hotspot/active/print", [
+            `?user=${userName}`,
+          ])) as RouterOSRecord[];
+          for (const aRec of activeRecs) {
+            if (aRec[".id"]) {
+              await client.write("/ip/hotspot/active/remove", [`=.id=${aRec[".id"]}`]);
+            }
+          }
+        } catch {}
+
+        // Remove the user from /ip/hotspot/user
+        await client.write("/ip/hotspot/user/remove", [`=.id=${userId}`]);
+        deletedUsernames.push(userName);
+      } catch (err) {
+        console.warn(`[removeHotspotUser] Failed to remove ${item} from router:`, err);
+        // Even if router remove fails or already gone, still add to purge DB
+        deletedUsernames.push(item);
+      }
+    }
+  });
+
+  // 2. Remove matching codes from vouchers database
+  if (deletedUsernames.length > 0) {
+    try {
+      const db = await getDB();
+      for (let i = 0; i < deletedUsernames.length; i += 50) {
+        const chunk = deletedUsernames.slice(i, i + 50);
+        const placeholders = chunk.map(() => "?").join(", ");
+        await db.execute({
+          sql: `DELETE FROM vouchers WHERE router_id = ? AND voucher_code IN (${placeholders})`,
+          args: [config.id, ...chunk],
+        });
+      }
+    } catch (dbErr) {
+      console.error("[removeHotspotUser] Failed to delete from DB vouchers:", dbErr);
+    }
+  }
+
+  return { deletedCount: deletedUsernames.length };
 }

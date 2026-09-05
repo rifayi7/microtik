@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
+  CheckSquare,
   Filter,
   Minus,
   Plus,
   RefreshCw,
   Search,
+  Square,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouterContext } from "@/contexts/router-context";
@@ -66,7 +70,7 @@ export function HotspotUsersView() {
   const [genServer, setGenServer] = useState("all");
   const [genUserMode, setGenUserMode] = useState("username_equals_password");
   const [genPrefix, setGenPrefix] = useState("");
-  const [genCharacters, setGenCharacters] = useState("5ab2c34d");
+  const [genCharacters, setGenCharacters] = useState("1234");
   const [genProfile, setGenProfile] = useState("default");
   const [genComment, setGenComment] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -198,6 +202,87 @@ export function HotspotUsersView() {
     }
   };
 
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id?: string; name: string } | null>(null);
+
+  const toggleSelectUser = (id: string) => {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllPage = (pageUserIds: string[]) => {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = pageUserIds.every((id) => next.has(id));
+      if (allSelected) {
+        pageUserIds.forEach((id) => next.delete(id));
+      } else {
+        pageUserIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleSingleDelete = async (user: HotspotUser) => {
+    setDeleteTarget({ id: user.id, name: user.username });
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedUserIds.size === 0) {
+      toast.error("No users selected to delete");
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!activeRouter) {
+      toast.error("No active router connected");
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const targets = deleteTarget
+        ? [deleteTarget.name]
+        : Array.from(selectedUserIds).map(
+            (id) => users.find((u) => u.id === id)?.username || id
+          );
+
+      const res = await fetchForRouter<{ success: boolean; deletedCount: number }>(
+        "/api/mikrotik/users/delete",
+        activeRouter,
+        {
+          method: "POST",
+          body: JSON.stringify({ names: targets }),
+        }
+      );
+
+      toast.success(
+        deleteTarget
+          ? `User "${deleteTarget.name}" deleted from MikroTik & DB`
+          : `Successfully deleted ${res.deletedCount || targets.length} user(s)`
+      );
+
+      setSelectedUserIds(new Set());
+      setDeleteConfirmOpen(false);
+      setDeleteTarget(null);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete user(s)");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     return users.filter(
       (user) =>
@@ -236,6 +321,19 @@ export function HotspotUsersView() {
         <Button variant="outline" size="icon-sm" className="bg-white dark:bg-card">
           <Filter className="size-4" />
         </Button>
+        {/* Delete Selected (Bulk / Marked) Button */}
+        {selectedUserIds.size > 0 && (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="gap-1.5 shadow-sm"
+            onClick={handleBulkDelete}
+          >
+            <Trash2 className="size-4" />
+            Delete Selected ({selectedUserIds.size})
+          </Button>
+        )}
+
         <div className="ml-auto flex flex-wrap gap-2">
           <Button variant="outline" className="bg-white dark:bg-card" onClick={() => setAddOpen(true)}>
             <Plus className="size-4" /> Add
@@ -253,7 +351,23 @@ export function HotspotUsersView() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/60">
-                <TableHead className="w-10" />
+                {/* Select All on Page Checkbox */}
+                <TableHead className="w-10 text-center">
+                  <button
+                    type="button"
+                    onClick={() => toggleSelectAllPage(pageItems.map((u) => u.id))}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                    title="Select all on this page"
+                  >
+                    {pageItems.length > 0 &&
+                    pageItems.every((u) => selectedUserIds.has(u.id)) ? (
+                      <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
+                    ) : (
+                      <Square className="size-4" />
+                    )}
+                  </button>
+                </TableHead>
+                <TableHead className="w-10">Action</TableHead>
                 <TableHead>Server</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Profile</TableHead>
@@ -265,25 +379,52 @@ export function HotspotUsersView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pageItems.map((user, index) => (
-                <TableRow key={user.id} className={index % 2 ? "bg-muted/20" : ""}>
-                  <TableCell>
-                    <Button variant="ghost" size="icon-xs">
-                      <Minus className="size-4 text-red-500" />
-                    </Button>
-                  </TableCell>
-                  <TableCell>{user.server ?? "all"}</TableCell>
-                  <TableCell className="font-medium">{user.username}</TableCell>
-                  <TableCell>{user.profile}</TableCell>
-                  <TableCell className="font-mono text-xs">{user.macAddress || "—"}</TableCell>
-                  <TableCell>{user.uptime}</TableCell>
-                  <TableCell>{user.bytesIn ?? user.dataUsed}</TableCell>
-                  <TableCell>{user.bytesOut ?? "—"}</TableCell>
-                  <TableCell className="max-w-[200px] truncate text-muted-foreground">
-                    {user.comment || "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {pageItems.map((user, index) => {
+                const isSelected = selectedUserIds.has(user.id);
+                return (
+                  <TableRow
+                    key={user.id}
+                    className={`${isSelected ? "bg-blue-50/60 dark:bg-blue-950/30" : index % 2 ? "bg-muted/20" : ""}`}
+                  >
+                    {/* Individual Row Checkbox */}
+                    <TableCell className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectUser(user.id)}
+                        className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                      >
+                        {isSelected ? (
+                          <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
+                        ) : (
+                          <Square className="size-4" />
+                        )}
+                      </button>
+                    </TableCell>
+                    {/* Delete Individual Row */}
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => handleSingleDelete(user)}
+                        title={`Delete ${user.username} from MikroTik & DB`}
+                        className="hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                      >
+                        <Trash2 className="size-3.5 text-red-500" />
+                      </Button>
+                    </TableCell>
+                    <TableCell>{user.server ?? "all"}</TableCell>
+                    <TableCell className="font-medium font-mono">{user.username}</TableCell>
+                    <TableCell>{user.profile}</TableCell>
+                    <TableCell className="font-mono text-xs">{user.macAddress || "—"}</TableCell>
+                    <TableCell>{user.uptime}</TableCell>
+                    <TableCell>{user.bytesIn ?? user.dataUsed}</TableCell>
+                    <TableCell>{user.bytesOut ?? "—"}</TableCell>
+                    <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                      {user.comment || "—"}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -500,6 +641,62 @@ export function HotspotUsersView() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="size-5" />
+              Confirm Deletion
+            </DialogTitle>
+            <DialogDescription className="pt-2 text-sm text-foreground/80">
+              {deleteTarget ? (
+                <>
+                  Are you sure you want to delete user{" "}
+                  <span className="font-mono font-bold text-destructive">
+                    {deleteTarget.name}
+                  </span>
+                  ? This will permanently delete it from both the{" "}
+                  <span className="font-semibold">MikroTik Router</span> and the{" "}
+                  <span className="font-semibold">Database inventory</span>.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete{" "}
+                  <span className="font-bold text-destructive">
+                    {selectedUserIds.size} selected user(s)
+                  </span>
+                  ? They will be permanently removed from both the{" "}
+                  <span className="font-semibold">MikroTik Router</span> and the{" "}
+                  <span className="font-semibold">Database inventory</span>.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                setDeleteTarget(null);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={executeDelete}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete Permanently"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

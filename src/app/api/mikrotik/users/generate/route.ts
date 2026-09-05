@@ -44,7 +44,7 @@ export async function POST(request: Request) {
           : "username_equals_password",
       nameLength: len,
       prefix: prefix ? String(prefix) : "",
-      characters: characters ? String(characters) : "5ab2c34d",
+      characters: characters ? String(characters) : "1234",
       profile: profile ? String(profile) : "default",
       comment: comment ? String(comment) : "",
     });

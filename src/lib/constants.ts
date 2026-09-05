@@ -13,7 +13,7 @@ export const CHARACTER_OPTIONS = [
 ] as const;
 
 export const CHARACTER_SETS: Record<string, string> = {
-  "1234": "1234567890",
+  "1234": "123456789",
   abcd: "abcdefghijklmnopqrstuvwxyz",
   ABCD: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
   aBcD: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
