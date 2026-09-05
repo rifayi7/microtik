@@ -73,17 +73,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: "Company created successfully" });
     }
 
+    // Action: Update / Rename Company
+    if (action === "update_company") {
+      const { id: compId, companyName: newName } = body;
+      if (!compId || !newName || !newName.trim()) {
+        return NextResponse.json({ success: false, error: "Company ID and new name are required" }, { status: 400 });
+      }
+
+      await database.execute({
+        sql: "UPDATE companies SET name = ? WHERE id = ?",
+        args: [newName.trim(), Number(compId)],
+      });
+
+      return NextResponse.json({ success: true, message: "Company updated successfully" });
+    }
+
     // Action: Create or Update Company Admin
     if (action === "create_admin") {
       if (!username || !password || !companyName) {
         return NextResponse.json({ success: false, error: "Username, password, and company are required" }, { status: 400 });
       }
 
-      // Lookup company_id
+      const trimmedCompany = companyName.trim();
+
+      // Ensure company exists in companies table
       let resolvedCompanyId: number | null = null;
       const compRes = await database.execute({
         sql: "SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
-        args: [companyName.trim()],
+        args: [trimmedCompany],
       });
       if (compRes.rows.length > 0) {
         resolvedCompanyId = Number(compRes.rows[0].id);
@@ -92,13 +109,41 @@ export async function POST(request: Request) {
       const hashedPassword = hashPassword(password.trim());
 
       if (id) {
+        // Fetch existing admin
+        const existingAdmin = await database.execute({
+          sql: "SELECT id, company_id, company_name FROM company_admins WHERE id = ?",
+          args: [Number(id)],
+        });
+
+        if (existingAdmin.rows.length > 0) {
+          const currentCompId = existingAdmin.rows[0].company_id ? Number(existingAdmin.rows[0].company_id) : null;
+          
+          if (!resolvedCompanyId) {
+            if (currentCompId) {
+              // Rename the existing company in companies table
+              await database.execute({
+                sql: "UPDATE companies SET name = ? WHERE id = ?",
+                args: [trimmedCompany, currentCompId],
+              });
+              resolvedCompanyId = currentCompId;
+            } else {
+              // Insert new company
+              const insertComp = await database.execute({
+                sql: "INSERT INTO companies (name) VALUES (?)",
+                args: [trimmedCompany],
+              });
+              resolvedCompanyId = Number(insertComp.lastInsertRowid);
+            }
+          }
+        }
+
         await database.execute({
           sql: `
             UPDATE company_admins 
             SET username = ?, password = ?, company_name = ?, company_id = ?
             WHERE id = ?
           `,
-          args: [username.trim(), hashedPassword, companyName.trim(), resolvedCompanyId, Number(id)],
+          args: [username.trim(), hashedPassword, trimmedCompany, resolvedCompanyId, Number(id)],
         });
         return NextResponse.json({ success: true, message: "Company admin updated successfully" });
       } else {
@@ -111,12 +156,20 @@ export async function POST(request: Request) {
           return NextResponse.json({ success: false, error: "This admin username already exists" }, { status: 400 });
         }
 
+        if (!resolvedCompanyId) {
+          const insertComp = await database.execute({
+            sql: "INSERT INTO companies (name) VALUES (?)",
+            args: [trimmedCompany],
+          });
+          resolvedCompanyId = Number(insertComp.lastInsertRowid);
+        }
+
         await database.execute({
           sql: `
             INSERT INTO company_admins (username, password, company_name, company_id, role) 
             VALUES (?, ?, ?, ?, 'company_admin')
           `,
-          args: [username.trim(), hashedPassword, companyName.trim(), resolvedCompanyId],
+          args: [username.trim(), hashedPassword, trimmedCompany, resolvedCompanyId],
         });
 
         return NextResponse.json({ success: true, message: "Company admin account created" });
