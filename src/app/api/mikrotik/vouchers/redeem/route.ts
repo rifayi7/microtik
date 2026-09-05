@@ -140,25 +140,17 @@ export async function POST(request: Request) {
         );
       }
 
-      // Step 2: Connect to MikroTik and create the hotspot user
+      // Step 2: Connect to MikroTik and create/update the hotspot user
       const username = selectedVoucherCode;
       const password = selectedVoucherCode;
       const profile = `${validityDaysNum}-Days`;
       const soldDateStr = getDubaiSoldDate();
       const comment = `Sold on ${soldDateStr}`;
 
+      let mikrotikSuccess = false;
       try {
         await updateOrCreateHotspotUser(config, username, password, profile, comment);
-
-        // Update to redeemed on success with Dubai Local Time (Asia/Dubai)
-        await db.execute({
-          sql: `
-            UPDATE vouchers 
-            SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
-            WHERE voucher_code = ?
-          `,
-          args: [mobileNumber, nowDubai, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, selectedVoucherCode]
-        });
+        mikrotikSuccess = true;
       } catch (mikrotikError) {
         const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";
         // Keep as redeemed but mark activation as failed. Payment was collected, so it cannot be put back in inventory.
@@ -169,7 +161,16 @@ export async function POST(request: Request) {
               SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'failed', activation_error = ?
               WHERE voucher_code = ?
             `,
-            args: [mobileNumber, nowDubai, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, errMsg, selectedVoucherCode]
+            args: [
+              mobileNumber,
+              nowDubai,
+              resolvedSoldBy || null,
+              resolvedSalesPersonId ? Number(resolvedSalesPersonId) : null,
+              Number(priceCharged) || 0,
+              config.id ? Number(config.id) : null,
+              errMsg,
+              selectedVoucherCode
+            ]
           });
         } catch (revertError) {
           console.error("Critical: Failed to log voucher activation failure", revertError);
@@ -179,6 +180,30 @@ export async function POST(request: Request) {
           { error: `Router connection failed: ${errMsg}` },
           { status: 502 }
         );
+      }
+
+      if (mikrotikSuccess) {
+        // Update to redeemed on success with Dubai Local Time (Asia/Dubai)
+        try {
+          await db.execute({
+            sql: `
+              UPDATE vouchers 
+              SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+              WHERE voucher_code = ?
+            `,
+            args: [
+              mobileNumber,
+              nowDubai,
+              resolvedSoldBy || null,
+              resolvedSalesPersonId ? Number(resolvedSalesPersonId) : null,
+              Number(priceCharged) || 0,
+              config.id ? Number(config.id) : null,
+              selectedVoucherCode
+            ]
+          });
+        } catch (dbErr) {
+          console.error("DB update error after successful router provision:", dbErr);
+        }
       }
     } else if (voucherId) {
       // Flow for redeeming by specific voucher ID (MikroTik user ID)
