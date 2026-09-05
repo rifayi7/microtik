@@ -79,16 +79,26 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: "Username, password, and company are required" }, { status: 400 });
       }
 
+      // Lookup company_id
+      let resolvedCompanyId: number | null = null;
+      const compRes = await database.execute({
+        sql: "SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
+        args: [companyName.trim()],
+      });
+      if (compRes.rows.length > 0) {
+        resolvedCompanyId = Number(compRes.rows[0].id);
+      }
+
       const hashedPassword = hashPassword(password.trim());
 
       if (id) {
         await database.execute({
           sql: `
             UPDATE company_admins 
-            SET username = ?, password = ?, company_name = ?
+            SET username = ?, password = ?, company_name = ?, company_id = ?
             WHERE id = ?
           `,
-          args: [username.trim(), hashedPassword, companyName.trim(), Number(id)],
+          args: [username.trim(), hashedPassword, companyName.trim(), resolvedCompanyId, Number(id)],
         });
         return NextResponse.json({ success: true, message: "Company admin updated successfully" });
       } else {
@@ -103,10 +113,10 @@ export async function POST(request: Request) {
 
         await database.execute({
           sql: `
-            INSERT INTO company_admins (username, password, company_name, role) 
-            VALUES (?, ?, ?, 'company_admin')
+            INSERT INTO company_admins (username, password, company_name, company_id, role) 
+            VALUES (?, ?, ?, ?, 'company_admin')
           `,
-          args: [username.trim(), hashedPassword, companyName.trim()],
+          args: [username.trim(), hashedPassword, companyName.trim(), resolvedCompanyId],
         });
 
         return NextResponse.json({ success: true, message: "Company admin account created" });

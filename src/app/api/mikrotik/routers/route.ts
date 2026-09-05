@@ -248,6 +248,18 @@ export async function POST(request: Request) {
       }
     }
 
+    // Resolve company_id if company name or ID provided
+    let resolvedCompanyId: number | null = body.companyId ? Number(body.companyId) : null;
+    if (!resolvedCompanyId && assignedCompany) {
+      const compRes = await database.execute({
+        sql: "SELECT id FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
+        args: [assignedCompany],
+      });
+      if (compRes.rows.length > 0) {
+        resolvedCompanyId = Number(compRes.rows[0].id);
+      }
+    }
+
     const id = `router-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     // Try to test connection immediately to check if it's live or pending/draft
@@ -286,8 +298,8 @@ export async function POST(request: Request) {
       sql: `
         INSERT INTO routers (
           id, sessionName, host, port, username, password, useTls, 
-          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber, verified_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber, verified_status, company_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         id,
@@ -306,6 +318,7 @@ export async function POST(request: Request) {
         liveReport !== false ? 1 : 0,
         serialNumber,
         isVerified ? 1 : 0,
+        resolvedCompanyId,
       ],
     });
 
@@ -313,23 +326,23 @@ export async function POST(request: Request) {
     if (isVerified) {
       try {
         await database.execute({
-          sql: "INSERT OR IGNORE INTO camps (name, hotspot_name, company_name) VALUES (?, ?, ?)",
-          args: [campName, sessionName, assignedCompany],
+          sql: "INSERT OR IGNORE INTO camps (name, hotspot_name, company_name, company_id) VALUES (?, ?, ?, ?)",
+          args: [campName, sessionName, assignedCompany, resolvedCompanyId],
         });
       } catch (e) {
         console.warn("Could not insert camp metadata:", e);
       }
 
-      // 3. Automatically seed default validity profile pricing for this verified camp
+      // 3. Automatically seed default validity profile pricing for this verified camp (keyed with router_id and company_id)
       try {
         await database.batch([
           {
-            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, price, status) VALUES (?, ?, ?, ?, ?)",
-            args: [campName, "15-Days", assignedCompany || "Apricom", 16, 1],
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            args: [campName, "15-Days", assignedCompany || "Apricom", resolvedCompanyId, id, 16, 1],
           },
           {
-            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, price, status) VALUES (?, ?, ?, ?, ?)",
-            args: [campName, "30-Days", assignedCompany || "Apricom", 32, 1],
+            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            args: [campName, "30-Days", assignedCompany || "Apricom", resolvedCompanyId, id, 32, 1],
           },
         ], "write");
       } catch (e) {
