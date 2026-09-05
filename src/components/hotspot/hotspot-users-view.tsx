@@ -659,9 +659,7 @@ export function HotspotUsersView() {
                   <span className="font-mono font-bold text-destructive">
                     {deleteTarget.name}
                   </span>
-                  ? This will permanently delete it from both the{" "}
-                  <span className="font-semibold">MikroTik Router</span> and the{" "}
-                  <span className="font-semibold">Database inventory</span>.
+                  ?
                 </>
               ) : (
                 <>
@@ -669,9 +667,7 @@ export function HotspotUsersView() {
                   <span className="font-bold text-destructive">
                     {selectedUserIds.size} selected user(s)
                   </span>
-                  ? They will be permanently removed from both the{" "}
-                  <span className="font-semibold">MikroTik Router</span> and the{" "}
-                  <span className="font-semibold">Database inventory</span>.
+                  ?
                 </>
               )}
             </DialogDescription>
