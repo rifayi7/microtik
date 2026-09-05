@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
     if (lookupUserId || lookupUsername) {
       const spRes = await database.execute({
-        sql: "SELECT id, username, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE id = ? OR username = ? OR display_name = ?",
+        sql: "SELECT id, username, display_name, role, camp_name, company_name, company_id, allowed_camps, allowed_router_ids FROM sales_persons WHERE id = ? OR username = ? OR display_name = ?",
         args: [
           lookupUserId ? Number(lookupUserId) : -1,
           lookupUsername ? String(lookupUsername) : "-1",
@@ -45,13 +45,24 @@ export async function GET(request: Request) {
           liveAllowedCamps = [String(row.camp_name)];
         }
 
+        let liveAllowedRouterIds: string[] = [];
+        if (row.allowed_router_ids) {
+          try {
+            liveAllowedRouterIds = JSON.parse(String(row.allowed_router_ids));
+          } catch {
+            liveAllowedRouterIds = [String(row.allowed_router_ids)];
+          }
+        }
+
         authUser = {
           sub: String(row.username),
           userId: Number(row.id),
           displayName: String(row.display_name || row.username),
           role: String(row.role || "salesperson"),
+          companyId: row.company_id ? Number(row.company_id) : null,
           companyName: row.company_name ? String(row.company_name) : null,
           allowedCamps: liveAllowedCamps,
+          allowedRouterIds: liveAllowedRouterIds,
         };
       }
     }
@@ -113,21 +124,28 @@ export async function GET(request: Request) {
       });
     }
 
-    // Strictly filter routers by allowedCamps if user has specific camp permissions (supports permanent router id, sessionName, or camp)
-    if (authUser && authUser.allowedCamps && authUser.allowedCamps.length > 0) {
-      const allowedLower = authUser.allowedCamps.map((c) => c.toLowerCase());
-      dbRouters = dbRouters.filter((r) => {
-        const idMatch = r.id && allowedLower.includes(r.id.toLowerCase());
-        const sessionMatch = r.sessionName && allowedLower.includes(r.sessionName.toLowerCase());
-        const campMatch = r.camp && allowedLower.includes(r.camp.toLowerCase());
-        return idMatch || sessionMatch || campMatch;
-      });
+    // Strictly filter routers by salesperson permissions (checks allowedRouterIds or allowedCamps)
+    if (authUser && authUser.role !== "superadmin") {
+      const hasSpecificRouterIds = authUser.allowedRouterIds && authUser.allowedRouterIds.length > 0;
+      const hasSpecificCamps = authUser.allowedCamps && authUser.allowedCamps.length > 0;
+
+      if (hasSpecificRouterIds || hasSpecificCamps) {
+        const allowedIds = (authUser.allowedRouterIds || []).map((id) => id.toLowerCase());
+        const allowedCampsLower = (authUser.allowedCamps || []).map((c) => c.toLowerCase());
+
+        dbRouters = dbRouters.filter((r) => {
+          const idMatch = allowedIds.includes(r.id.toLowerCase());
+          const campMatch = (r.camp && allowedCampsLower.includes(r.camp.toLowerCase())) ||
+                            (r.sessionName && allowedCampsLower.includes(r.sessionName.toLowerCase()));
+          return idMatch || campMatch;
+        });
+      }
     }
 
     // Merge with env-configured routers if any (only for superadmin when no company/camp restrictions exist)
     let envRouters: any[] = [];
     const hasCompanyRestriction = Boolean(companyFilter && companyFilter.trim());
-    const hasCampRestriction = Boolean(authUser && authUser.allowedCamps && authUser.allowedCamps.length > 0);
+    const hasCampRestriction = Boolean(authUser && authUser.role !== "superadmin" && ((authUser.allowedCamps && authUser.allowedCamps.length > 0) || (authUser.allowedRouterIds && authUser.allowedRouterIds.length > 0)));
 
     if (isMikrotikConfigured() && !hasCompanyRestriction && !hasCampRestriction) {
       const configs = getConfiguredRouters();
@@ -158,15 +176,6 @@ export async function GET(request: Request) {
       if (!mergedRouters.some((r) => r.id === envR.id)) {
         mergedRouters.push(envR);
       }
-    }
-
-    // Final safety filter for allowedCamps
-    if (hasCampRestriction && authUser?.allowedCamps) {
-      const allowedLower = authUser.allowedCamps.map((c) => c.toLowerCase());
-      mergedRouters = mergedRouters.filter((r) => {
-        const campLower = (r.camp || r.sessionName || "").toLowerCase();
-        return allowedLower.includes(campLower);
-      });
     }
 
     return NextResponse.json({ routers: mergedRouters, configured: true });
