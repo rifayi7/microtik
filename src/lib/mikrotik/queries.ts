@@ -950,7 +950,7 @@ export async function removeHotspotUsersFromRouter(
     }
   });
 
-  // 2. Remove matching codes from vouchers database
+  // 2. Remove matching codes from vouchers database (ONLY delete available/disabled inventory, NEVER delete redeemed sales history)
   if (deletedUsernames.length > 0) {
     try {
       const db = await getDB();
@@ -958,7 +958,7 @@ export async function removeHotspotUsersFromRouter(
         const chunk = deletedUsernames.slice(i, i + 50);
         const placeholders = chunk.map(() => "?").join(", ");
         await db.execute({
-          sql: `DELETE FROM vouchers WHERE router_id = ? AND voucher_code IN (${placeholders})`,
+          sql: `DELETE FROM vouchers WHERE router_id = ? AND voucher_code IN (${placeholders}) AND status IN ('available', 'disabled')`,
           args: [config.id, ...chunk],
         });
       }
