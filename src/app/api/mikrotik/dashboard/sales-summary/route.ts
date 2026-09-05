@@ -206,7 +206,7 @@ export async function GET(request: Request) {
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
           SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
-        LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed' AND (
+        LEFT JOIN vouchers v ON (v.router_id = r.id OR v.router_id = r.sessionName) AND v.status = 'redeemed' AND (
           (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
           OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
         )
@@ -233,7 +233,7 @@ export async function GET(request: Request) {
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
           SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
-        LEFT JOIN vouchers v ON v.router_id = r.id AND v.status = 'redeemed'
+        LEFT JOIN vouchers v ON (v.router_id = r.id OR v.router_id = r.sessionName) AND v.status = 'redeemed'
         ${routerFilterClause}
         GROUP BY r.id
       `;
