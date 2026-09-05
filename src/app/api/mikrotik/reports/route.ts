@@ -61,15 +61,23 @@ async function handleRequest(request: Request) {
     }
 
     let allowedCamps: string[] = authUser?.allowedCamps || [];
+    let allowedRouterIds: string[] = authUser?.allowedRouterIds || [];
 
-    // If allowedCamps not in JWT, check from database for the salesperson
-    if (allowedCamps.length === 0 && (salesPersonId || salesperson)) {
+    // If allowedRouterIds or allowedCamps not in JWT, check from database for the salesperson
+    if ((allowedRouterIds.length === 0 && allowedCamps.length === 0) && (salesPersonId || salesperson || authUser?.userId || authUser?.sub)) {
       const spRes = await db.execute({
-        sql: "SELECT allowed_camps, camp_name FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
-        args: [salesPersonId || -1, salesperson || "", salesperson || ""],
+        sql: "SELECT allowed_camps, allowed_router_ids, camp_name FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
+        args: [salesPersonId || authUser?.userId || -1, salesperson || authUser?.sub || "", salesperson || authUser?.sub || ""],
       });
       if (spRes.rows.length > 0) {
         const spRow = spRes.rows[0];
+        if (spRow.allowed_router_ids) {
+          try {
+            allowedRouterIds = JSON.parse(String(spRow.allowed_router_ids));
+          } catch {
+            allowedRouterIds = [String(spRow.allowed_router_ids)];
+          }
+        }
         if (spRow.allowed_camps) {
           try {
             allowedCamps = JSON.parse(String(spRow.allowed_camps));
@@ -82,15 +90,33 @@ async function handleRequest(request: Request) {
       }
     }
 
-    // If querying general reports without a specific salesperson, filter by allowedCamps
-    const isSpecificSalesperson = Boolean(salesPersonId || (salesperson && salesperson.trim() !== ""));
-    if (!isSpecificSalesperson && allowedCamps.length > 0) {
-      conditions.push(`v.router_id IN (
-        SELECT r.id FROM routers r 
-        WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${allowedCamps.map(() => '?').join(',')})
-           OR LOWER(r.id) IN (${allowedCamps.map(() => '?').join(',')})
-      )`);
-      args.push(...allowedCamps.map((c) => c.toLowerCase()), ...allowedCamps.map((c) => c.toLowerCase()));
+    // Filter by allowed router IDs / camps if salesperson has restricted permissions
+    if (authUser && authUser.role !== "superadmin") {
+      const hasSpecificRouters = allowedRouterIds.length > 0;
+      const hasSpecificCamps = allowedCamps.length > 0;
+
+      if (hasSpecificRouters || hasSpecificCamps) {
+        const clauses: string[] = [];
+        const campArgs: any[] = [];
+
+        if (hasSpecificRouters) {
+          clauses.push(`v.router_id IN (${allowedRouterIds.map(() => '?').join(',')})`);
+          campArgs.push(...allowedRouterIds);
+        }
+        if (hasSpecificCamps) {
+          clauses.push(`v.router_id IN (
+            SELECT r.id FROM routers r 
+            WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${allowedCamps.map(() => '?').join(',')})
+               OR LOWER(r.id) IN (${allowedCamps.map(() => '?').join(',')})
+          )`);
+          campArgs.push(...allowedCamps.map((c) => c.toLowerCase()), ...allowedCamps.map((c) => c.toLowerCase()));
+        }
+
+        if (clauses.length > 0) {
+          conditions.push(`(${clauses.join(" OR ")})`);
+          args.push(...campArgs);
+        }
+      }
     }
 
     if (routerId && routerId.trim() !== "") {
@@ -117,6 +143,16 @@ async function handleRequest(request: Request) {
       )`);
       const sName = salesperson.trim();
       args.push(sName, sName, sName, sName, sName);
+    } else if (authUser && authUser.role !== "superadmin" && authUser.userId) {
+      conditions.push(`(
+        v.sales_person_id = ? 
+        OR v.sold_by = ? 
+        OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ?)
+        OR v.sold_by IN (SELECT display_name FROM sales_persons WHERE id = ?)
+      )`);
+      const sId = Number(authUser.userId);
+      const sName = authUser.displayName || authUser.sub || "UNKNOWN";
+      args.push(sId, sName, sId, sId);
     }
 
     if (startDate && startDate.trim() !== "") {
