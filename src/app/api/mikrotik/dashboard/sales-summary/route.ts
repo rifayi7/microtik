@@ -159,7 +159,7 @@ export async function GET(request: Request) {
 
     if (isFilteredBySalesperson) {
       const campCondition = effectiveCampFilters.length > 0
-        ? `LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')})`
+        ? `(LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')}) OR LOWER(r.id) IN (${effectiveCampFilters.map(() => '?').join(',')}))`
         : "1=0";
       
       // Allow currently assigned camps OR any router where the salesperson had redeemed vouchers
@@ -172,6 +172,7 @@ export async function GET(request: Request) {
       ))`;
       routerFilterArgs = [
         ...effectiveCampFilters,
+        ...effectiveCampFilters,
         targetIdVal,
         targetUserVal,
         targetIdVal,
@@ -179,9 +180,9 @@ export async function GET(request: Request) {
       ];
     } else {
       routerFilterClause = effectiveCampFilters.length > 0
-        ? `WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')})`
+        ? `WHERE (LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')}) OR LOWER(r.id) IN (${effectiveCampFilters.map(() => '?').join(',')}))`
         : ((companyParam && companyParam.trim()) || userAllowedCamps.length > 0 ? "WHERE 1=0" : "");
-      routerFilterArgs = effectiveCampFilters.length > 0 ? effectiveCampFilters : [];
+      routerFilterArgs = effectiveCampFilters.length > 0 ? [...effectiveCampFilters, ...effectiveCampFilters] : [];
     }
 
     const salesSql = isFilteredBySalesperson

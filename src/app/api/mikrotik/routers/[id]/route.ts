@@ -157,7 +157,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         ]
       });
 
-      // Synchronize camps table if name changed
+      // Synchronize camps table and sales_persons permissions if name changed
       if (oldCamp && newCamp && oldCamp.toLowerCase() !== newCamp.toLowerCase()) {
         try {
           await database.execute({
@@ -166,6 +166,44 @@ export async function PUT(request: Request, { params }: RouteParams) {
           });
         } catch (e) {
           console.warn("Could not sync camps table on rename:", e);
+        }
+
+        try {
+          const spList = await database.execute("SELECT id, camp_name, allowed_camps FROM sales_persons");
+          for (const sp of spList.rows) {
+            let changed = false;
+            let currentPrimary = sp.camp_name ? String(sp.camp_name) : "";
+            let currentAllowed: string[] = [];
+            if (sp.allowed_camps) {
+              try {
+                currentAllowed = JSON.parse(String(sp.allowed_camps));
+              } catch {
+                currentAllowed = [String(sp.allowed_camps)];
+              }
+            }
+
+            if (currentPrimary.toLowerCase() === oldCamp.toLowerCase()) {
+              currentPrimary = newCamp;
+              changed = true;
+            }
+
+            const updatedAllowed = currentAllowed.map((c) => {
+              if (c.toLowerCase() === oldCamp.toLowerCase()) {
+                changed = true;
+                return newCamp;
+              }
+              return c;
+            });
+
+            if (changed) {
+              await database.execute({
+                sql: "UPDATE sales_persons SET camp_name = ?, allowed_camps = ? WHERE id = ?",
+                args: [currentPrimary, JSON.stringify(updatedAllowed), Number(sp.id)],
+              });
+            }
+          }
+        } catch (e) {
+          console.warn("Could not sync salesperson permissions on rename:", e);
         }
       }
 

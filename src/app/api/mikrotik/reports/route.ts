@@ -88,8 +88,9 @@ async function handleRequest(request: Request) {
       conditions.push(`v.router_id IN (
         SELECT r.id FROM routers r 
         WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${allowedCamps.map(() => '?').join(',')})
+           OR LOWER(r.id) IN (${allowedCamps.map(() => '?').join(',')})
       )`);
-      args.push(...allowedCamps.map((c) => c.toLowerCase()));
+      args.push(...allowedCamps.map((c) => c.toLowerCase()), ...allowedCamps.map((c) => c.toLowerCase()));
     }
 
     if (routerId && routerId.trim() !== "") {

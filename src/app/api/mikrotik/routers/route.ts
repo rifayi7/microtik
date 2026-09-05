@@ -113,12 +113,14 @@ export async function GET(request: Request) {
       });
     }
 
-    // Strictly filter routers by allowedCamps if user has specific camp permissions
+    // Strictly filter routers by allowedCamps if user has specific camp permissions (supports permanent router id, sessionName, or camp)
     if (authUser && authUser.allowedCamps && authUser.allowedCamps.length > 0) {
       const allowedLower = authUser.allowedCamps.map((c) => c.toLowerCase());
       dbRouters = dbRouters.filter((r) => {
-        const campLower = (r.camp || r.sessionName || "").toLowerCase();
-        return allowedLower.includes(campLower);
+        const idMatch = r.id && allowedLower.includes(r.id.toLowerCase());
+        const sessionMatch = r.sessionName && allowedLower.includes(r.sessionName.toLowerCase());
+        const campMatch = r.camp && allowedLower.includes(r.camp.toLowerCase());
+        return idMatch || sessionMatch || campMatch;
       });
     }
 
