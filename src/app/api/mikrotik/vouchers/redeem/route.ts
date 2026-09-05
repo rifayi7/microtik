@@ -307,19 +307,19 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+              SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
               WHERE voucher_code = ?
             `,
-            args: [mobileNumber, nowDubai, salesperson || null, priceCharged, config.id, selectedVoucherCode],
+            args: [mobileNumber, nowDubai, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, selectedVoucherCode],
           });
         } else {
           // Insert as new used voucher since it existed on router but not in local DB
           await db.execute({
             sql: `
-              INSERT INTO vouchers (voucher_code, validity_days, status, used_by, used_at, router_id, sold_by, price_charged, activation_status)
-              VALUES (?, ?, 'redeemed', ?, ?, ?, ?, ?, 'success')
+              INSERT INTO vouchers (voucher_code, validity_days, status, used_by, used_at, router_id, sold_by, sales_person_id, price_charged, activation_status)
+              VALUES (?, ?, 'redeemed', ?, ?, ?, ?, ?, ?, 'success')
             `,
-            args: [selectedVoucherCode, validityDaysNum, mobileNumber, nowDubai, config.id, salesperson || null, priceCharged],
+            args: [selectedVoucherCode, validityDaysNum, mobileNumber, nowDubai, config.id, resolvedSoldBy, resolvedSalesPersonId, priceCharged],
           });
         }
 
@@ -340,10 +340,10 @@ export async function POST(request: Request) {
             await db.execute({
               sql: `
                 UPDATE vouchers 
-                SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, price_charged = ?, activation_status = 'failed', activation_error = ?
+                SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'failed', activation_error = ?
                 WHERE voucher_code = ?
               `,
-              args: [mobileNumber, nowDubai, salesperson || null, priceCharged, errMsg, selectedVoucherCode]
+              args: [mobileNumber, nowDubai, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, errMsg, selectedVoucherCode]
             });
           } catch (revertError) {
             console.error("Critical: Failed to log voucher activation failure", revertError);
@@ -369,10 +369,10 @@ export async function POST(request: Request) {
           await db.execute({
             sql: `
               UPDATE vouchers 
-              SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
+              SET status = 'redeemed', used_by = ?, used_at = ?, sold_by = ?, sales_person_id = ?, price_charged = ?, router_id = ?, activation_status = 'success', activation_error = NULL
               WHERE voucher_code = ?
             `,
-            args: [mobileNumber, nowDubai, salesperson || null, priceCharged, config.id, finalVoucherCode]
+            args: [mobileNumber, nowDubai, resolvedSoldBy, resolvedSalesPersonId, priceCharged, config.id, finalVoucherCode]
           });
         } catch (mikrotikError) {
           const errMsg = mikrotikError instanceof Error ? mikrotikError.message : "Router connection failed";

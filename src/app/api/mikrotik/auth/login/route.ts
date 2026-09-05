@@ -20,7 +20,16 @@ export async function POST(request: Request) {
 
     const database = await getDB();
     const result = await database.execute({
-      sql: "SELECT id, username, password, display_name, role, camp_name, company_name, allowed_camps FROM sales_persons WHERE LOWER(username) = LOWER(?) OR LOWER(display_name) = LOWER(?) LIMIT 1",
+      sql: `
+        SELECT 
+          sp.id, sp.username, sp.password, sp.display_name, sp.role, sp.camp_name, 
+          sp.company_name, sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
+          c.id as resolved_company_id, c.name as resolved_company_name
+        FROM sales_persons sp
+        LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id) OR (sp.company_name IS NOT NULL AND LOWER(c.name) = LOWER(sp.company_name))
+        WHERE LOWER(sp.username) = LOWER(?) OR LOWER(sp.display_name) = LOWER(?) 
+        LIMIT 1
+      `,
       args: [username.trim(), username.trim()],
     });
 
@@ -36,8 +45,10 @@ export async function POST(request: Request) {
           displayName: username.trim() === "Fasil@2020" ? "Fasil" : "Rifai",
           role: "salesperson" as const,
           campName: "All Camps",
+          companyId: null,
           companyName: "",
           allowedCamps: [] as string[],
+          allowedRouterIds: [] as string[],
         };
 
         const token = signJwt({
@@ -45,8 +56,10 @@ export async function POST(request: Request) {
           userId: user.id,
           displayName: user.displayName,
           role: user.role,
+          companyId: user.companyId,
           companyName: user.companyName,
           allowedCamps: user.allowedCamps,
+          allowedRouterIds: user.allowedRouterIds,
         });
 
         return NextResponse.json({
@@ -99,14 +112,28 @@ export async function POST(request: Request) {
       allowedCamps = [String(row.camp_name)];
     }
 
+    let allowedRouterIds: string[] = [];
+    if (row.allowed_router_ids) {
+      try {
+        allowedRouterIds = JSON.parse(String(row.allowed_router_ids));
+      } catch {
+        allowedRouterIds = [String(row.allowed_router_ids)];
+      }
+    }
+
+    const finalCompanyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
+    const finalCompanyName = String(row.resolved_company_name || row.company_name || "");
+
     const user = {
       id: Number(row.id),
       username: String(row.username),
       displayName: String(row.display_name || row.username),
       role: String(row.role || "salesperson"),
       campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "All Camps")),
-      companyName: String(row.company_name || ""),
+      companyId: finalCompanyId,
+      companyName: finalCompanyName,
       allowedCamps,
+      allowedRouterIds,
     };
 
     const token = signJwt({
@@ -114,8 +141,10 @@ export async function POST(request: Request) {
       userId: user.id,
       displayName: user.displayName,
       role: user.role,
+      companyId: user.companyId,
       companyName: user.companyName,
       allowedCamps: user.allowedCamps,
+      allowedRouterIds: user.allowedRouterIds,
     });
 
     return NextResponse.json({

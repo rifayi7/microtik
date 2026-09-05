@@ -50,8 +50,10 @@ export interface JwtAuthPayload {
   userId?: number;
   displayName?: string;
   role: "superadmin" | "company_admin" | "salesperson" | string;
+  companyId?: number | null;
   companyName?: string | null;
   allowedCamps?: string[];
+  allowedRouterIds?: string[];
   iat?: number;
   exp?: number;
 }

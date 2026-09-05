@@ -145,13 +145,16 @@ async function handleRequest(request: Request) {
     const totalSoldRow = totalSoldResult.rows[0];
     const totalSold = totalSoldRow ? Number(totalSoldRow.count) : 0;
 
-    // 2. Sales count grouped by salesperson
+    // 2. Sales count grouped by salesperson (ID-centric with dynamic name join)
     const salespersonResult = await db.execute({
       sql: `
-        SELECT v.sold_by as name, COUNT(*) as count 
+        SELECT 
+          COALESCE(sp.display_name, sp.username, v.sold_by, 'Unknown') as name, 
+          COUNT(*) as count 
         FROM vouchers v
-        ${whereClause} AND v.sold_by IS NOT NULL AND v.sold_by != ''
-        GROUP BY v.sold_by
+        LEFT JOIN sales_persons sp ON sp.id = v.sales_person_id OR sp.username = v.sold_by OR sp.display_name = v.sold_by
+        ${whereClause} AND (v.sold_by IS NOT NULL AND v.sold_by != '' OR v.sales_person_id IS NOT NULL)
+        GROUP BY COALESCE(sp.id, v.sold_by)
         ORDER BY count DESC
       `,
       args,
@@ -169,12 +172,13 @@ async function handleRequest(request: Request) {
           v.validity_days as validity, 
           v.used_by as mobile, 
           v.used_at as timestamp, 
-          v.sold_by as seller, 
+          COALESCE(sp.display_name, sp.username, v.sold_by, 'Unknown') as seller, 
           v.price_charged as price,
           v.router_id as routerId,
           COALESCE(NULLIF(r.sessionName, ''), NULLIF(r.camp, ''), 'Camp') as campName
         FROM vouchers v
         LEFT JOIN routers r ON CAST(r.id AS TEXT) = CAST(v.router_id AS TEXT) OR r.sessionName = v.router_id
+        LEFT JOIN sales_persons sp ON sp.id = v.sales_person_id OR sp.username = v.sold_by OR sp.display_name = v.sold_by
         ${whereClause}
         ORDER BY v.used_at DESC
         LIMIT 200

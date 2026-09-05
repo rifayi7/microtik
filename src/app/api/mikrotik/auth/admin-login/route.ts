@@ -52,7 +52,15 @@ export async function POST(request: Request) {
     // 2. Company Admin Authentication Check against company_admins table
     const database = await getDB();
     const result = await database.execute({
-      sql: "SELECT id, username, password, company_name, role FROM company_admins WHERE username = ?",
+      sql: `
+        SELECT 
+          ca.id, ca.username, ca.password, ca.company_name, ca.company_id, ca.role,
+          c.id as resolved_company_id, c.name as resolved_company_name
+        FROM company_admins ca
+        LEFT JOIN companies c ON (ca.company_id IS NOT NULL AND c.id = ca.company_id) OR (ca.company_name IS NOT NULL AND LOWER(c.name) = LOWER(ca.company_name))
+        WHERE ca.username = ?
+        LIMIT 1
+      `,
       args: [trimmedUser],
     });
 
@@ -87,19 +95,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // Fetch camps assigned to this company
-    const compName = String(row.company_name || "");
+    const resolvedCompanyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
+    const compName = String(row.resolved_company_name || row.company_name || "");
+
+    // Fetch camps assigned to this company (by ID or name)
     const campsResult = await database.execute({
-      sql: "SELECT name FROM camps WHERE company_name = ?",
-      args: [compName],
+      sql: "SELECT name FROM camps WHERE (company_id IS NOT NULL AND company_id = ?) OR (company_name IS NOT NULL AND LOWER(company_name) = LOWER(?))",
+      args: [resolvedCompanyId ?? -1, compName],
     });
     const companyCamps = campsResult.rows.map((r) => String(r.name));
 
     const user = {
       id: Number(row.id),
       username: String(row.username),
-      displayName: compName + " Admin",
+      displayName: compName ? `${compName} Admin` : "Company Admin",
       role: "company_admin" as const,
+      companyId: resolvedCompanyId,
       companyName: compName,
       allowedCamps: companyCamps,
     };
@@ -109,6 +120,7 @@ export async function POST(request: Request) {
       userId: user.id,
       displayName: user.displayName,
       role: user.role,
+      companyId: user.companyId,
       companyName: user.companyName,
       allowedCamps: user.allowedCamps,
     });

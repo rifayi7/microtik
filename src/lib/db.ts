@@ -179,6 +179,40 @@ export async function initializeDB() {
     // Column already exists or table is new
   }
 
+  // --- ID-Centric Relational Schema Migrations ---
+  // Ensure company_id exists on sales_persons
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN company_id INTEGER REFERENCES companies(id);");
+  } catch (e) {}
+
+  // Ensure allowed_router_ids exists on sales_persons (JSON array of router.id strings)
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN allowed_router_ids TEXT;");
+  } catch (e) {}
+
+  // Ensure company_id exists on routers
+  try {
+    await db.execute("ALTER TABLE routers ADD COLUMN company_id INTEGER REFERENCES companies(id);");
+  } catch (e) {}
+
+  // Ensure company_id exists on camps
+  try {
+    await db.execute("ALTER TABLE camps ADD COLUMN company_id INTEGER REFERENCES companies(id);");
+  } catch (e) {}
+
+  // Ensure router_id and company_id exist on camp_validity_pricing
+  try {
+    await db.execute("ALTER TABLE camp_validity_pricing ADD COLUMN router_id TEXT REFERENCES routers(id);");
+  } catch (e) {}
+  try {
+    await db.execute("ALTER TABLE camp_validity_pricing ADD COLUMN company_id INTEGER REFERENCES companies(id);");
+  } catch (e) {}
+
+  // Ensure company_id exists on company_admins
+  try {
+    await db.execute("ALTER TABLE company_admins ADD COLUMN company_id INTEGER REFERENCES companies(id);");
+  } catch (e) {}
+
   // Check if seeding is required for default router ID '1' (Disabled for clean database)
   /*
   const checkResult = await db.execute({
