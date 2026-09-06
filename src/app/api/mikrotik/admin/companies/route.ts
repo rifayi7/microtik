@@ -25,7 +25,9 @@ export async function GET(request: Request) {
 
     // 2. Get all company admins
     const adminResult = await database.execute(`
-      SELECT ca.id, ca.username, ca.company_name, ca.role, ca.created_at, COALESCE(c.timezone, 'Asia/Dubai') as timezone
+      SELECT ca.id, ca.username, ca.company_name, ca.company_id, ca.role, ca.created_at, 
+             COALESCE(c.id, ca.company_id) as resolved_company_id,
+             COALESCE(c.timezone, 'Asia/Dubai') as timezone
       FROM company_admins ca
       LEFT JOIN companies c ON (ca.company_id IS NOT NULL AND c.id = ca.company_id) OR (ca.company_name IS NOT NULL AND LOWER(c.name) = LOWER(ca.company_name))
       ORDER BY ca.id ASC
@@ -35,6 +37,7 @@ export async function GET(request: Request) {
       id: Number(row.id),
       username: String(row.username),
       companyName: String(row.company_name),
+      companyId: row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null),
       role: String(row.role || "company_admin"),
       createdAt: String(row.created_at || ""),
       timezone: String(row.timezone || "Asia/Dubai"),
@@ -94,8 +97,8 @@ export async function POST(request: Request) {
 
     // Action: Create or Update Company Admin
     if (action === "create_admin") {
-      if (!username || !password || !companyName) {
-        return NextResponse.json({ success: false, error: "Username, password, and company are required" }, { status: 400 });
+      if (!username || (!id && !password) || !companyName) {
+        return NextResponse.json({ success: false, error: "Username and company are required" }, { status: 400 });
       }
 
       const trimmedCompany = companyName.trim();
@@ -110,7 +113,10 @@ export async function POST(request: Request) {
         resolvedCompanyId = Number(compRes.rows[0].id);
       }
 
-      const hashedPassword = hashPassword(password.trim());
+      let hashedPassword = "";
+      if (password && password.trim()) {
+        hashedPassword = hashPassword(password.trim());
+      }
 
       if (id) {
         // Fetch existing admin
@@ -126,29 +132,29 @@ export async function POST(request: Request) {
             if (currentCompId) {
               // Rename the existing company in companies table
               await database.execute({
-                sql: "UPDATE companies SET name = ? WHERE id = ?",
-                args: [trimmedCompany, currentCompId],
+                sql: "UPDATE companies SET name = ?, timezone = ? WHERE id = ?",
+                args: [trimmedCompany, targetTimezone, currentCompId],
               });
               resolvedCompanyId = currentCompId;
             } else {
               // Insert new company
               const insertComp = await database.execute({
-                sql: "INSERT INTO companies (name) VALUES (?)",
-                args: [trimmedCompany],
+                sql: "INSERT INTO companies (name, timezone) VALUES (?, ?)",
+                args: [trimmedCompany, targetTimezone],
               });
               resolvedCompanyId = Number(insertComp.lastInsertRowid);
             }
-          }
-          if (resolvedCompanyId) {
+          } else {
+            // Update company timezone and name
             await database.execute({
-              sql: "UPDATE companies SET timezone = ? WHERE id = ?",
-              args: [targetTimezone, resolvedCompanyId],
+              sql: "UPDATE companies SET name = ?, timezone = ? WHERE id = ?",
+              args: [trimmedCompany, targetTimezone, resolvedCompanyId],
             });
           }
         }
 
-        const updatePasswordSql = password && password.trim() ? "password = ?," : "";
-        const updateArgs = password && password.trim()
+        const updatePasswordSql = hashedPassword ? "password = ?," : "";
+        const updateArgs = hashedPassword
           ? [username.trim(), hashedPassword, trimmedCompany, resolvedCompanyId, Number(id)]
           : [username.trim(), trimmedCompany, resolvedCompanyId, Number(id)];
 

@@ -767,8 +767,8 @@ export function AdminClient() {
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="w-12">#</TableHead>
+                  <TableHead>Company Name</TableHead>
                   <TableHead>Admin Username</TableHead>
-                  <TableHead>Assigned Company</TableHead>
                   <TableHead>Timezone</TableHead>
                   <TableHead>Account Role</TableHead>
                   <TableHead>Password</TableHead>
@@ -787,14 +787,21 @@ export function AdminClient() {
                   filteredCompanyAdmins.map((admin, idx) => (
                     <TableRow key={admin.id}>
                       <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">
+                            <Briefcase className="size-3.5" />
+                            {admin.companyName}
+                          </span>
+                          {admin.companyId ? (
+                            <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                              ID: {admin.companyId}
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
                       <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
                         {admin.username}
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">
-                          <Briefcase className="size-3.5" />
-                          {admin.companyName}
-                        </span>
                       </TableCell>
                       <TableCell>
                         {(() => {

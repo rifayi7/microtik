@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -75,16 +76,28 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-between bg-primary p-12 text-primary-foreground">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-primary-foreground/10">
-            <Wifi className="size-5" />
+      {/* ── LEFT HERO PANEL: LinkFi Brand Visual ── */}
+      <div className="hidden lg:flex flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-12 text-white relative overflow-hidden">
+        {/* Subtle background glow effect */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Center: LinkFi Logo and MicroTik Hotspot Manager */}
+        <div className="flex flex-col items-center justify-center text-center z-10 space-y-6">
+          <div className="relative group p-4 rounded-3xl bg-white shadow-2xl shadow-cyan-500/10 border border-white/20 transition-transform duration-300 hover:scale-105">
+            <Image
+              src="/linkfi-logo.png"
+              alt="LinkFi"
+              width={340}
+              height={340}
+              priority
+              className="rounded-2xl object-contain"
+            />
           </div>
-          <span className="text-xl font-semibold">{APP_NAME}</span>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-white">MicroTik Hotspot Manager</h2>
+          </div>
         </div>
-        <p className="text-sm text-primary-foreground/60">
-          Multi-Tenant Cloud Ecosystem · Routers · Vouchers · Live Sessions · Sales
-        </p>
       </div>
 
       <div className="flex items-center justify-center p-6 sm:p-12">
