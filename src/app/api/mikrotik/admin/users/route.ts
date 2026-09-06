@@ -85,8 +85,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { username, displayName, password, role, campName, companyName, companyId, allowedCamps, allowedRouterIds } = body;
 
-    if (!username || !password) {
-      return NextResponse.json({ success: false, error: "Username and password are required" }, { status: 400 });
+    if (!username || !password || !displayName || !displayName.trim()) {
+      return NextResponse.json({ success: false, error: "Username, password, and Display Name are required" }, { status: 400 });
     }
 
     const database = await getDB();
@@ -188,6 +188,10 @@ export async function PUT(request: Request) {
 
     if (!id) {
       return NextResponse.json({ success: false, error: "User ID is required" }, { status: 400 });
+    }
+
+    if (displayName !== undefined && (!displayName || !displayName.trim())) {
+      return NextResponse.json({ success: false, error: "Display Name cannot be empty" }, { status: 400 });
     }
 
     const database = await getDB();

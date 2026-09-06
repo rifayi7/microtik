@@ -259,8 +259,16 @@ export function AdminClient() {
   // Handle Save or Update User
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingUser && (!newUsername.trim() || !newPassword.trim())) {
-      toast.error("Please enter both username and password");
+    if (!newUsername.trim()) {
+      toast.error("Please enter login username");
+      return;
+    }
+    if (!newDisplayName.trim()) {
+      toast.error("Please enter a display name");
+      return;
+    }
+    if (!editingUser && !newPassword.trim()) {
+      toast.error("Please enter a password");
       return;
     }
 
@@ -275,7 +283,7 @@ export function AdminClient() {
           body: JSON.stringify({
             id: editingUser.id,
             username: newUsername.trim(),
-            displayName: newDisplayName.trim() || newUsername.trim(),
+            displayName: newDisplayName.trim(),
             password: newPassword.trim() ? newPassword.trim() : undefined,
             role: newUserRole,
             companyName: newUserCompany,
@@ -283,14 +291,14 @@ export function AdminClient() {
             allowedCamps: newUserAllowedCamps,
           }),
         });
-        toast.success(`Salesperson account updated to "${newDisplayName.trim() || newUsername.trim()}"!`);
+        toast.success(`Salesperson account updated to "${newDisplayName.trim()}"!`);
       } else {
         // Create user
         await fetchMikrotikApi("/api/mikrotik/admin/users", {
           method: "POST",
           body: JSON.stringify({
             username: newUsername.trim(),
-            displayName: newDisplayName.trim() || newUsername.trim(),
+            displayName: newDisplayName.trim(),
             password: newPassword.trim(),
             role: newUserRole,
             companyName: newUserCompany,
@@ -298,7 +306,7 @@ export function AdminClient() {
             allowedCamps: newUserAllowedCamps,
           }),
         });
-        toast.success(`Salesperson account "${newDisplayName || newUsername}" created successfully!`);
+        toast.success(`Salesperson "${newDisplayName.trim()}" created successfully!`);
       }
 
       setUserModalOpen(false);
@@ -989,12 +997,13 @@ export function AdminClient() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="displayName">Display Name</Label>
+                  <Label htmlFor="displayName">Display Name *</Label>
                   <Input
                     id="displayName"
                     placeholder="e.g. Fasil or Akif"
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
+                    required
                   />
                 </div>
               </div>
