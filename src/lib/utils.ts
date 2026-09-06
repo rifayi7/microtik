@@ -6,6 +6,13 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Returns current timestamp formatted as 'YYYY-MM-DD HH:MM:SS' in standard UTC
+ */
+export function getUtcTimestamp(date: Date = new Date()): string {
+  return date.toISOString().replace("T", " ").substring(0, 19);
+}
+
+/**
  * Returns current timestamp formatted as 'YYYY-MM-DD HH:MM:SS' in Asia/Dubai time
  */
 export function getDubaiTimestamp(date: Date = new Date()): string {

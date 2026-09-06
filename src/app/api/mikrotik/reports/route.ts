@@ -156,12 +156,12 @@ async function handleRequest(request: Request) {
     }
 
     if (startDate && startDate.trim() !== "") {
-      conditions.push("date(v.used_at) >= date(?)");
+      conditions.push("COALESCE(date(v.used_at, '+4 hours'), date(v.used_at)) >= date(?)");
       args.push(startDate.trim());
     }
 
     if (endDate && endDate.trim() !== "") {
-      conditions.push("date(v.used_at) <= date(?)");
+      conditions.push("COALESCE(date(v.used_at, '+4 hours'), date(v.used_at)) <= date(?)");
       args.push(endDate.trim());
     }
 
