@@ -25,7 +25,8 @@ export async function GET(request: Request) {
         SELECT 
           sp.id, sp.username, sp.display_name, sp.role, sp.camp_name, 
           sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
-          c.id as resolved_company_id, c.name as resolved_company_name
+          c.id as resolved_company_id, c.name as resolved_company_name,
+          COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
         FROM sales_persons sp
         LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id)
         WHERE (sp.id = ? OR LOWER(sp.username) = LOWER(?))
@@ -62,6 +63,7 @@ export async function GET(request: Request) {
 
     const companyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
     const companyName = row.resolved_company_name ? String(row.resolved_company_name) : null;
+    const companyTimezone = String(row.company_timezone || "Asia/Dubai");
 
     return NextResponse.json({
       success: true,
@@ -73,6 +75,7 @@ export async function GET(request: Request) {
         campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "All Camps")),
         companyId,
         companyName,
+        companyTimezone,
         allowedCamps,
         allowedRouterIds,
       },

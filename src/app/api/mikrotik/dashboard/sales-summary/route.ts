@@ -19,19 +19,55 @@ export async function GET(request: Request) {
     }
     const database = await getDB();
     
-    // Resolve user ID if provided
+    // Resolve user ID and company details if provided
     let targetUserId: number | null = salesPersonIdParam ? Number(salesPersonIdParam) : null;
     let targetUsername = salespersonParam && salespersonParam.trim() !== "" && salespersonParam.trim() !== "Unknown" ? salespersonParam.trim() : null;
+    let targetTimezone = "Asia/Dubai";
 
-    if (!targetUserId && targetUsername) {
-      // Lookup ID from database
-      const lookup = await database.execute({
-        sql: "SELECT id, username, display_name FROM sales_persons WHERE username = ? OR display_name = ? OR CAST(id AS TEXT) = ?",
-        args: [targetUsername, targetUsername, targetUsername],
+    // Lookup user details from database to resolve company and company timezone
+    if (targetUserId || targetUsername || authUser?.userId || authUser?.sub) {
+      const lookupId = targetUserId || authUser?.userId || -1;
+      const lookupName = targetUsername || authUser?.sub || "";
+      const spRes = await database.execute({
+        sql: `
+          SELECT sp.id, sp.username, sp.display_name, sp.camp_name, sp.company_name, sp.allowed_camps,
+                 COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
+          FROM sales_persons sp
+          LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id) OR (sp.company_name IS NOT NULL AND LOWER(c.name) = LOWER(sp.company_name))
+          WHERE sp.id = ? OR sp.username = ? OR sp.display_name = ?
+          LIMIT 1
+        `,
+        args: [lookupId, lookupName, lookupName],
       });
-      if (lookup.rows.length > 0) {
-        targetUserId = Number(lookup.rows[0].id);
+      if (spRes.rows.length > 0) {
+        const row = spRes.rows[0];
+        targetUserId = Number(row.id);
+        if (!targetUsername) targetUsername = String(row.username);
+        if (row.company_name && !companyParam) companyParam = String(row.company_name);
+        if (row.company_timezone) targetTimezone = String(row.company_timezone);
       }
+    }
+
+    if (companyParam && companyParam.trim() && targetTimezone === "Asia/Dubai") {
+      const compRes = await database.execute({
+        sql: "SELECT timezone FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
+        args: [companyParam.trim()],
+      });
+      if (compRes.rows.length > 0 && compRes.rows[0].timezone) {
+        targetTimezone = String(compRes.rows[0].timezone);
+      }
+    }
+
+    // Determine timezone SQL modifier for SQLite (e.g. Riyadh = +3 hours, Dubai/Muscat = +4 hours, Kolkata = +5.5 hours)
+    let tzModifier = "+4 hours";
+    if (targetTimezone === "Asia/Riyadh" || targetTimezone === "Asia/Qatar" || targetTimezone === "Asia/Kuwait" || targetTimezone === "Asia/Bahrain" || targetTimezone === "Asia/Amman") {
+      tzModifier = "+3 hours";
+    } else if (targetTimezone === "Africa/Cairo") {
+      tzModifier = "+3 hours";
+    } else if (targetTimezone === "Asia/Kolkata") {
+      tzModifier = "+330 minutes";
+    } else if (targetTimezone === "UTC") {
+      tzModifier = "+0 hours";
     }
 
     const isFilteredBySalesperson = Boolean(targetUserId || targetUsername);
@@ -56,11 +92,11 @@ export async function GET(request: Request) {
       totalSalesCount: 0,
     };
 
-    // We compute dates using Dubai/UAE Time (UTC+4):
-    const todayExpr = "date('now', '+4 hours')";
-    const monthExpr = "strftime('%Y-%m', 'now', '+4 hours')";
-    const usedAtDateExpr = "date(used_at, '+4 hours')";
-    const usedAtMonthExpr = "strftime('%Y-%m', used_at, '+4 hours')";
+    // We compute dates using the tenant's dynamic company timezone:
+    const todayExpr = `date('now', '${tzModifier}')`;
+    const monthExpr = `strftime('%Y-%m', 'now', '${tzModifier}')`;
+    const usedAtDateExpr = `date(used_at, '${tzModifier}')`;
+    const usedAtMonthExpr = `strftime('%Y-%m', used_at, '${tzModifier}')`;
 
     if (isFilteredBySalesperson) {
       const targetIdVal = targetUserId ? Number(targetUserId) : -1;

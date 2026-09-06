@@ -24,7 +24,8 @@ export async function POST(request: Request) {
         SELECT 
           sp.id, sp.username, sp.password, sp.display_name, sp.role, sp.camp_name, 
           sp.company_name, sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
-          c.id as resolved_company_id, c.name as resolved_company_name
+          c.id as resolved_company_id, c.name as resolved_company_name,
+          COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
         FROM sales_persons sp
         LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id) OR (sp.company_name IS NOT NULL AND LOWER(c.name) = LOWER(sp.company_name))
         WHERE LOWER(sp.username) = LOWER(?) OR LOWER(sp.display_name) = LOWER(?) 
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
           campName: "All Camps",
           companyId: null,
           companyName: "",
+          companyTimezone: "Asia/Dubai",
           allowedCamps: [] as string[],
           allowedRouterIds: [] as string[],
         };
@@ -123,6 +125,7 @@ export async function POST(request: Request) {
 
     const finalCompanyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
     const finalCompanyName = String(row.resolved_company_name || row.company_name || "");
+    const finalCompanyTimezone = String(row.company_timezone || "Asia/Dubai");
 
     const user = {
       id: Number(row.id),
@@ -132,6 +135,7 @@ export async function POST(request: Request) {
       campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "All Camps")),
       companyId: finalCompanyId,
       companyName: finalCompanyName,
+      companyTimezone: finalCompanyTimezone,
       allowedCamps,
       allowedRouterIds,
     };

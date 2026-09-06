@@ -16,17 +16,19 @@ export async function GET(request: Request) {
     const database = await getDB();
 
     // 1. Get all companies
-    const compResult = await database.execute("SELECT id, name FROM companies ORDER BY name ASC");
+    const compResult = await database.execute("SELECT id, name, COALESCE(timezone, 'Asia/Dubai') as timezone FROM companies ORDER BY name ASC");
     const companies = compResult.rows.map((row) => ({
       id: Number(row.id),
       name: String(row.name),
+      timezone: String(row.timezone || "Asia/Dubai"),
     }));
 
     // 2. Get all company admins
     const adminResult = await database.execute(`
-      SELECT id, username, company_name, role, created_at
-      FROM company_admins
-      ORDER BY id ASC
+      SELECT ca.id, ca.username, ca.company_name, ca.role, ca.created_at, COALESCE(c.timezone, 'Asia/Dubai') as timezone
+      FROM company_admins ca
+      LEFT JOIN companies c ON (ca.company_id IS NOT NULL AND c.id = ca.company_id) OR (ca.company_name IS NOT NULL AND LOWER(c.name) = LOWER(ca.company_name))
+      ORDER BY ca.id ASC
     `);
 
     const companyAdmins = adminResult.rows.map((row) => ({
@@ -35,6 +37,7 @@ export async function GET(request: Request) {
       companyName: String(row.company_name),
       role: String(row.role || "company_admin"),
       createdAt: String(row.created_at || ""),
+      timezone: String(row.timezone || "Asia/Dubai"),
     }));
 
     return NextResponse.json({
@@ -56,8 +59,9 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { action, companyName, username, password, id } = body;
+    const { action, companyName, username, password, id, timezone } = body;
     const database = await getDB();
+    const targetTimezone = timezone && timezone.trim() ? timezone.trim() : "Asia/Dubai";
 
     // Action: Create Company
     if (action === "create_company") {
@@ -66,8 +70,8 @@ export async function POST(request: Request) {
       }
 
       await database.execute({
-        sql: "INSERT OR IGNORE INTO companies (name) VALUES (?)",
-        args: [companyName.trim()],
+        sql: "INSERT OR IGNORE INTO companies (name, timezone) VALUES (?, ?)",
+        args: [companyName.trim(), targetTimezone],
       });
 
       return NextResponse.json({ success: true, message: "Company created successfully" });
@@ -81,8 +85,8 @@ export async function POST(request: Request) {
       }
 
       await database.execute({
-        sql: "UPDATE companies SET name = ? WHERE id = ?",
-        args: [newName.trim(), Number(compId)],
+        sql: "UPDATE companies SET name = ?, timezone = ? WHERE id = ?",
+        args: [newName.trim(), targetTimezone, Number(compId)],
       });
 
       return NextResponse.json({ success: true, message: "Company updated successfully" });
@@ -135,15 +139,26 @@ export async function POST(request: Request) {
               resolvedCompanyId = Number(insertComp.lastInsertRowid);
             }
           }
+          if (resolvedCompanyId) {
+            await database.execute({
+              sql: "UPDATE companies SET timezone = ? WHERE id = ?",
+              args: [targetTimezone, resolvedCompanyId],
+            });
+          }
         }
+
+        const updatePasswordSql = password && password.trim() ? "password = ?," : "";
+        const updateArgs = password && password.trim()
+          ? [username.trim(), hashedPassword, trimmedCompany, resolvedCompanyId, Number(id)]
+          : [username.trim(), trimmedCompany, resolvedCompanyId, Number(id)];
 
         await database.execute({
           sql: `
             UPDATE company_admins 
-            SET username = ?, password = ?, company_name = ?, company_id = ?
+            SET username = ?, ${updatePasswordSql} company_name = ?, company_id = ?
             WHERE id = ?
           `,
-          args: [username.trim(), hashedPassword, trimmedCompany, resolvedCompanyId, Number(id)],
+          args: updateArgs,
         });
         return NextResponse.json({ success: true, message: "Company admin updated successfully" });
       } else {
@@ -158,10 +173,16 @@ export async function POST(request: Request) {
 
         if (!resolvedCompanyId) {
           const insertComp = await database.execute({
-            sql: "INSERT INTO companies (name) VALUES (?)",
-            args: [trimmedCompany],
+            sql: "INSERT INTO companies (name, timezone) VALUES (?, ?)",
+            args: [trimmedCompany, targetTimezone],
           });
           resolvedCompanyId = Number(insertComp.lastInsertRowid);
+        } else {
+          // Update company timezone if changed
+          await database.execute({
+            sql: "UPDATE companies SET timezone = ? WHERE id = ?",
+            args: [targetTimezone, resolvedCompanyId],
+          });
         }
 
         await database.execute({

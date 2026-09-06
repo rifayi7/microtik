@@ -18,6 +18,8 @@ import {
   Users,
   Briefcase,
   Layers,
+  Globe,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
@@ -79,18 +81,33 @@ interface CompanyAdmin {
   companyName: string;
   companyId?: string | number | null;
   role: string;
+  timezone?: string;
   createdAt: string;
 }
 
 interface CompanyItem {
   id: string | number;
   name: string;
+  timezone?: string;
 }
 
 interface CampWithCompany {
   name: string;
   companyName: string | null;
 }
+
+const TIMEZONE_OPTIONS = [
+  { value: "Asia/Dubai", flag: "🇦🇪", label: "United Arab Emirates", gmt: "UTC+4", code: "AE" },
+  { value: "Asia/Riyadh", flag: "🇸🇦", label: "Saudi Arabia (KSA)", gmt: "UTC+3", code: "SA" },
+  { value: "Asia/Qatar", flag: "🇶🇦", label: "Qatar", gmt: "UTC+3", code: "QA" },
+  { value: "Asia/Kuwait", flag: "🇰🇼", label: "Kuwait", gmt: "UTC+3", code: "KW" },
+  { value: "Asia/Bahrain", flag: "🇧🇭", label: "Bahrain", gmt: "UTC+3", code: "BH" },
+  { value: "Asia/Muscat", flag: "🇴🇲", label: "Oman", gmt: "UTC+4", code: "OM" },
+  { value: "Africa/Cairo", flag: "🇪🇬", label: "Egypt", gmt: "UTC+2 / UTC+3", code: "EG" },
+  { value: "Asia/Amman", flag: "🇯🇴", label: "Jordan", gmt: "UTC+3", code: "JO" },
+  { value: "Asia/Kolkata", flag: "🇮🇳", label: "India", gmt: "UTC+5:30", code: "IN" },
+  { value: "UTC", flag: "🌐", label: "Universal UTC", gmt: "+0:00", code: "UTC" },
+];
 
 export function AdminClient() {
   const router = useRouter();
@@ -148,11 +165,13 @@ export function AdminClient() {
   const [adminUsername, setAdminUsername] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [adminCompany, setAdminCompany] = useState("");
+  const [adminCompanyTimezone, setAdminCompanyTimezone] = useState("Asia/Dubai");
   const [savingCompanyAdmin, setSavingCompanyAdmin] = useState(false);
 
   // Create Company Modal
   const [newCompanyModalOpen, setNewCompanyModalOpen] = useState(false);
   const [newCompanyNameInput, setNewCompanyNameInput] = useState("");
+  const [newCompanyTimezoneInput, setNewCompanyTimezoneInput] = useState("Asia/Dubai");
   const [savingNewCompany, setSavingNewCompany] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -345,6 +364,7 @@ export function AdminClient() {
     setAdminUsername("");
     setAdminPassword("");
     setAdminCompany("");
+    setAdminCompanyTimezone("Asia/Dubai");
     setCompanyAdminModalOpen(true);
   };
 
@@ -353,6 +373,7 @@ export function AdminClient() {
     setAdminUsername(admin.username);
     setAdminPassword("");
     setAdminCompany(admin.companyName);
+    setAdminCompanyTimezone(admin.timezone || "Asia/Dubai");
     setCompanyAdminModalOpen(true);
   };
 
@@ -373,6 +394,7 @@ export function AdminClient() {
           username: adminUsername.trim(),
           password: adminPassword.trim(),
           companyName: adminCompany,
+          timezone: adminCompanyTimezone,
         }),
       });
 
@@ -427,11 +449,13 @@ export function AdminClient() {
         body: JSON.stringify({
           action: "create_company",
           companyName: newCompanyNameInput.trim(),
+          timezone: newCompanyTimezoneInput,
         }),
       });
       toast.success(`Company "${newCompanyNameInput.trim()}" created!`);
       setNewCompanyModalOpen(false);
       setNewCompanyNameInput("");
+      setNewCompanyTimezoneInput("Asia/Dubai");
       await loadData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create company");
@@ -745,6 +769,7 @@ export function AdminClient() {
                   <TableHead className="w-12">#</TableHead>
                   <TableHead>Admin Username</TableHead>
                   <TableHead>Assigned Company</TableHead>
+                  <TableHead>Timezone</TableHead>
                   <TableHead>Account Role</TableHead>
                   <TableHead>Password</TableHead>
                   <TableHead>Created Date</TableHead>
@@ -754,7 +779,7 @@ export function AdminClient() {
               <TableBody>
                 {filteredCompanyAdmins.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                       No company admin accounts found. Click &quot;Create Company Admin&quot; to provide login credentials to a client company.
                     </TableCell>
                   </TableRow>
@@ -770,6 +795,17 @@ export function AdminClient() {
                           <Briefcase className="size-3.5" />
                           {admin.companyName}
                         </span>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const opt = TIMEZONE_OPTIONS.find((t) => t.value === admin.timezone) || TIMEZONE_OPTIONS[0];
+                          return (
+                            <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
+                              <span>{opt.flag}</span>
+                              <span>{opt.label} ({opt.gmt})</span>
+                            </span>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
@@ -1171,6 +1207,27 @@ export function AdminClient() {
                   onChange={(e) => setAdminPassword(e.target.value)}
                   required={!editingCompanyAdmin}
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="adminCompanyTimezone">Company Timezone</Label>
+                <Select value={adminCompanyTimezone} onValueChange={(v) => v && setAdminCompanyTimezone(v)}>
+                  <SelectTrigger id="adminCompanyTimezone" className="w-full">
+                    <SelectValue placeholder="Select timezone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEZONE_OPTIONS.map((tz) => (
+                      <SelectItem key={tz.value} value={tz.value}>
+                        <span className="text-base mr-1">{tz.flag}</span>
+                        <span className="font-medium">{tz.label}</span>
+                        <span className="text-muted-foreground text-xs ml-auto">({tz.gmt})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Sales records and vouchers will be grouped according to this timezone.
+                </p>
               </div>
             </div>
 
