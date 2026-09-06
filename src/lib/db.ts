@@ -118,6 +118,22 @@ export async function initializeDB() {
     );
   `);
 
+  // Create report_users table for sales report app viewers (Super Admin controlled)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS report_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      display_name TEXT,
+      company_id INTEGER REFERENCES companies(id),
+      company_name TEXT,
+      allowed_camp_ids TEXT,
+      allowed_router_ids TEXT,
+      status INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Create companies table
   await db.execute(`
     CREATE TABLE IF NOT EXISTS companies (

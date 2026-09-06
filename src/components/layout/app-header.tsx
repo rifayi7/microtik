@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Search } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -35,6 +35,20 @@ interface AppHeaderProps {
 export function AppHeader({ title }: AppHeaderProps) {
   const routerNav = useRouter();
   const [showSignoutModal, setShowSignoutModal] = useState(false);
+  const [userRole, setUserRole] = useState<string>("superadmin");
+  const [userName, setUserName] = useState<string>("Admin User");
+  const [companyName, setCompanyName] = useState<string>("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const role = localStorage.getItem("admin_user_role") || "superadmin";
+      const name = localStorage.getItem("admin_user_name") || "Admin User";
+      const comp = localStorage.getItem("admin_company_name") || "";
+      setUserRole(role);
+      setUserName(name);
+      setCompanyName(comp);
+    }
+  }, []);
 
   return (
     <>
@@ -46,6 +60,20 @@ export function AppHeader({ title }: AppHeaderProps) {
             {title}
           </h2>
         )}
+
+        {/* Role & Company Header Indicator */}
+        <div className="hidden sm:flex items-center ml-3">
+          {userRole === "superadmin" ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+              🛡️ Super Administrator
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
+              🏢 Company Admin: <span className="font-bold">{companyName || "Assigned"}</span>
+            </span>
+          )}
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           <div className="relative hidden md:block">
             <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -65,7 +93,9 @@ export function AppHeader({ title }: AppHeaderProps) {
               render={
                 <Button variant="ghost" size="icon" className="rounded-full">
                   <Avatar className="size-8">
-                    <AvatarFallback className="text-xs">AD</AvatarFallback>
+                    <AvatarFallback className="text-xs uppercase font-bold">
+                      {userName ? userName.slice(0, 2).toUpperCase() : "AD"}
+                    </AvatarFallback>
                   </Avatar>
                 </Button>
               }
@@ -73,8 +103,10 @@ export function AppHeader({ title }: AppHeaderProps) {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium">Admin User</p>
-                  <p className="text-xs text-muted-foreground">admin@mywifi.local</p>
+                  <p className="text-sm font-medium capitalize">{userName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {userRole === "superadmin" ? "Super Admin Account" : `Company: ${companyName}`}
+                  </p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

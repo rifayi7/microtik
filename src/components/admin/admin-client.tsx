@@ -20,6 +20,10 @@ import {
   Layers,
   Globe,
   Clock,
+  BarChart3,
+  FileSpreadsheet,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
@@ -86,7 +90,7 @@ interface CompanyAdmin {
 }
 
 interface CompanyItem {
-  id: string | number;
+  id: number;
   name: string;
   timezone?: string;
 }
@@ -94,6 +98,20 @@ interface CompanyItem {
 interface CampWithCompany {
   name: string;
   companyName: string | null;
+  companyId?: number | null;
+}
+
+interface ReportUser {
+  id: number;
+  username: string;
+  displayName: string;
+  password?: string;
+  companyId: number | null;
+  companyName: string;
+  allowedCampIds: string[];
+  allowedRouterIds: string[];
+  status: number;
+  createdAt: string;
 }
 
 const TIMEZONE_OPTIONS = [
@@ -174,10 +192,24 @@ export function AdminClient() {
   const [newCompanyTimezoneInput, setNewCompanyTimezoneInput] = useState("Asia/Dubai");
   const [savingNewCompany, setSavingNewCompany] = useState(false);
 
+  // Report Viewers State (Super Admin Only)
+  const [reportUsers, setReportUsers] = useState<ReportUser[]>([]);
+  const [reportUserSearch, setReportUserSearch] = useState("");
+  const [reportUserModalOpen, setReportUserModalOpen] = useState(false);
+  const [editingReportUser, setEditingReportUser] = useState<ReportUser | null>(null);
+  const [reportUsername, setReportUsername] = useState("");
+  const [reportDisplayName, setReportDisplayName] = useState("");
+  const [reportPassword, setReportPassword] = useState("");
+  const [reportUserCompanyId, setReportUserCompanyId] = useState<string>("");
+  const [reportUserAllowedCamps, setReportUserAllowedCamps] = useState<string[]>([]);
+  const [reportUserStatus, setReportUserStatus] = useState<number>(1);
+  const [savingReportUser, setSavingReportUser] = useState(false);
+  const [allCompaniesList, setAllCompaniesList] = useState<CompanyItem[]>([]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, pricingRes, companiesRes] = await Promise.all([
+      const [usersRes, pricingRes, companiesRes, reportUsersRes] = await Promise.all([
         fetchMikrotikApi<{ users: AdminUser[] }>("/api/mikrotik/admin/users"),
         fetchMikrotikApi<{
           campPricing: CampPricing[];
@@ -190,6 +222,7 @@ export function AdminClient() {
           companies: CompanyItem[];
           companyAdmins: CompanyAdmin[];
         }>("/api/mikrotik/admin/companies").catch(() => ({ companies: [], companyAdmins: [] })),
+        fetchMikrotikApi<{ reportUsers: ReportUser[] }>("/api/mikrotik/admin/report-users").catch(() => ({ reportUsers: [] })),
       ]);
 
       if (usersRes.users) setUsers(usersRes.users);
@@ -208,6 +241,7 @@ export function AdminClient() {
       }
       if (companiesRes.companies) {
         companiesRes.companies.forEach((c) => allCompanies.add(c.name));
+        setAllCompaniesList(companiesRes.companies);
       }
       if (allCompanies.size === 0) {
         allCompanies.add("Apricom DXB");
@@ -219,6 +253,9 @@ export function AdminClient() {
         setCompanyAdmins(companiesRes.companyAdmins);
       }
       if (pricingRes.validityProfiles) setValidityProfiles(pricingRes.validityProfiles);
+      if (reportUsersRes.reportUsers) {
+        setReportUsers(reportUsersRes.reportUsers);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load admin data");
     } finally {
@@ -520,6 +557,125 @@ export function AdminClient() {
     }
   };
 
+  // Report User Handlers (Super Admin only)
+  const handleOpenAddReportUser = () => {
+    setEditingReportUser(null);
+    setReportUsername("");
+    setReportDisplayName("");
+    setReportPassword("");
+    setReportUserCompanyId("");
+    setReportUserAllowedCamps([]);
+    setReportUserStatus(1);
+    setReportUserModalOpen(true);
+  };
+
+  const handleOpenEditReportUser = (u: ReportUser) => {
+    setEditingReportUser(u);
+    setReportUsername(u.username);
+    setReportDisplayName(u.displayName || u.username);
+    setReportPassword("");
+    setReportUserCompanyId(u.companyId ? String(u.companyId) : "");
+    setReportUserAllowedCamps(u.allowedCampIds || []);
+    setReportUserStatus(u.status !== undefined ? u.status : 1);
+    setReportUserModalOpen(true);
+  };
+
+  const handleSaveReportUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reportUsername.trim()) {
+      toast.error("Please enter a username");
+      return;
+    }
+    if (!reportDisplayName.trim()) {
+      toast.error("Please enter a display name");
+      return;
+    }
+    if (!reportUserCompanyId || reportUserCompanyId.trim() === "") {
+      toast.error("Please select an assigned company for this report viewer");
+      return;
+    }
+    if (!editingReportUser && !reportPassword.trim()) {
+      toast.error("Please enter a password for the new report viewer");
+      return;
+    }
+
+    setSavingReportUser(true);
+    try {
+      const selectedCompany = allCompaniesList.find((c) => String(c.id) === reportUserCompanyId);
+      const compId = selectedCompany ? selectedCompany.id : Number(reportUserCompanyId);
+      const compName = selectedCompany ? selectedCompany.name : null;
+
+      await fetchMikrotikApi("/api/mikrotik/admin/report-users", {
+        method: "POST",
+        body: JSON.stringify({
+          action: editingReportUser ? "update" : "create",
+          id: editingReportUser?.id,
+          username: reportUsername.trim(),
+          displayName: reportDisplayName.trim() || reportUsername.trim(),
+          password: reportPassword.trim() || undefined,
+          companyId: compId,
+          companyName: compName,
+          allowedCampIds: reportUserAllowedCamps,
+          status: reportUserStatus,
+        }),
+      });
+
+      toast.success(
+        editingReportUser
+          ? `Report viewer "${reportUsername}" updated!`
+          : `Report viewer "${reportUsername}" created successfully!`
+      );
+      setReportUserModalOpen(false);
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save report viewer");
+    } finally {
+      setSavingReportUser(false);
+    }
+  };
+
+  const handleDeleteReportUser = async (u: ReportUser) => {
+    if (!confirm(`Are you sure you want to delete report viewer "${u.username}"?`)) {
+      return;
+    }
+
+    try {
+      await fetchMikrotikApi("/api/mikrotik/admin/report-users", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "delete",
+          id: u.id,
+        }),
+      });
+      toast.success(`Report viewer "${u.username}" deleted`);
+      setReportUsers((prev) => prev.filter((item) => item.id !== u.id));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete report viewer");
+    }
+  };
+
+  const toggleReportAllowedCamp = (campName: string) => {
+    setReportUserAllowedCamps((prev) =>
+      prev.includes(campName) ? prev.filter((c) => c !== campName) : [...prev, campName]
+    );
+  };
+
+  // Camps available strictly for the selected company in Report Viewer modal (filtered by companyId or name)
+  const availableCampsForReportCompany = Array.from(
+    new Set(
+      reportUserCompanyId && reportUserCompanyId.trim() !== ""
+        ? campsWithCompany
+            .filter((c) => {
+              const comp = allCompaniesList.find((co) => String(co.id) === reportUserCompanyId);
+              if (!comp) return false;
+              if (c.companyId && Number(c.companyId) === Number(comp.id)) return true;
+              return Boolean(c.companyName && c.companyName.toLowerCase() === comp.name.toLowerCase());
+            })
+            .map((c) => c.name)
+        : []
+    )
+  );
+
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
       u.username.toLowerCase().includes(userSearch.toLowerCase()) ||
@@ -551,6 +707,20 @@ export function AdminClient() {
       a.username.toLowerCase().includes(companySearch.toLowerCase()) ||
       a.companyName.toLowerCase().includes(companySearch.toLowerCase())
   );
+
+  const filteredReportUsers = reportUsers.filter((ru) => {
+    const matchesSearch =
+      ru.username.toLowerCase().includes(reportUserSearch.toLowerCase()) ||
+      ru.displayName.toLowerCase().includes(reportUserSearch.toLowerCase()) ||
+      (ru.companyName && ru.companyName.toLowerCase().includes(reportUserSearch.toLowerCase()));
+
+    const matchesCompany =
+      selectedCompanyFilter === "ALL" ||
+      (ru.companyName && ru.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase()) ||
+      (!ru.companyId && selectedCompanyFilter === "ALL");
+
+    return matchesSearch && matchesCompany;
+  });
 
   return (
     <div className="space-y-6">
@@ -584,6 +754,10 @@ export function AdminClient() {
           <TabsTrigger value="pricing" className="gap-2">
             <DollarSign className="size-4" />
             Camp Pricing Settings ({campPricing.length})
+          </TabsTrigger>
+          <TabsTrigger value="reports_users" className="gap-2">
+            <BarChart3 className="size-4" />
+            Report Viewers ({reportUsers.length})
           </TabsTrigger>
         </TabsList>
 
@@ -1008,6 +1182,144 @@ export function AdminClient() {
             </Table>
           </div>
         </TabsContent>
+
+        {/* ── TAB 4: REPORT VIEWERS MANAGEMENT (SUPER ADMIN ONLY) ── */}
+        <TabsContent value="reports_users" className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search report viewers..."
+                value={reportUserSearch}
+                onChange={(e) => setReportUserSearch(e.target.value)}
+                className="pl-9 bg-card"
+              />
+            </div>
+            <Button
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+              onClick={handleOpenAddReportUser}
+            >
+              <UserPlus className="mr-2 size-4" />
+              Add Report Viewer
+            </Button>
+          </div>
+
+          <div className="rounded-xl border bg-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead>Viewer Name</TableHead>
+                  <TableHead>Username / ID</TableHead>
+                  <TableHead>Assigned Company</TableHead>
+                  <TableHead>Accessible Camps</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredReportUsers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                      No report viewers found. Click &quot;Add Report Viewer&quot; to create login access for the Sales Report App.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredReportUsers.map((u, idx) => (
+                    <TableRow key={u.id}>
+                      <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
+                      <TableCell>
+                        <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          <BarChart3 className="size-4 text-indigo-600 dark:text-indigo-400" />
+                          <span>{u.displayName}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono font-bold">
+                            {u.username}
+                          </code>
+                          <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1 py-0.5 rounded font-mono">
+                            ID: {u.id}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {u.companyName ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            <Building2 className="size-3" />
+                            {u.companyName}
+                            {u.companyId && (
+                              <span className="text-[10px] opacity-75 font-mono ml-0.5">
+                                #{u.companyId}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                            <Globe className="size-3" />
+                            Global (All Companies)
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {!u.allowedCampIds || u.allowedCampIds.length === 0 ? (
+                          <span className="text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800">
+                            No Camps (0 Assigned)
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1 max-w-xs">
+                            {u.allowedCampIds.map((camp) => (
+                              <span
+                                key={camp}
+                                className="text-[11px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border"
+                              >
+                                {camp}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {u.status === 1 ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">
+                            <CheckCircle2 className="size-3" />
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                            <XCircle className="size-3" />
+                            Disabled
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50"
+                            onClick={() => handleOpenEditReportUser(u)}
+                          >
+                            <Key className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => void handleDeleteReportUser(u)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* ── MODAL: ADD / EDIT SALESPERSON ── */}
@@ -1319,6 +1631,198 @@ export function AdminClient() {
               </Button>
               <Button type="submit" disabled={savingPricing} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                 {savingPricing ? "Saving..." : "Save Price"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── MODAL: ADD / EDIT REPORT VIEWER ── */}
+      <Dialog open={reportUserModalOpen} onOpenChange={setReportUserModalOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <form onSubmit={handleSaveReportUser}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <BarChart3 className="size-5 text-indigo-600" />
+                {editingReportUser ? `Edit Report Viewer (${editingReportUser.username})` : "Add Sales Report Viewer"}
+              </DialogTitle>
+              <DialogDescription>
+                {editingReportUser
+                  ? "Update login credentials, company restriction, and allowed camps for this Sales Report App viewer."
+                  : "Create login credentials to allow a manager or auditor to access the Sales Report App."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="repUsername">Username *</Label>
+                  <Input
+                    id="repUsername"
+                    placeholder="e.g. ahmed_reports"
+                    value={reportUsername}
+                    onChange={(e) => setReportUsername(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="repDisplayName">Display Name / Title *</Label>
+                  <Input
+                    id="repDisplayName"
+                    placeholder="e.g. Ahmed (Finance Manager)"
+                    value={reportDisplayName}
+                    onChange={(e) => setReportDisplayName(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="repPassword">
+                  {editingReportUser ? "New Password (Leave empty to keep current)" : "Login Password *"}
+                </Label>
+                <Input
+                  id="repPassword"
+                  type="password"
+                  placeholder={editingReportUser ? "Enter new password" : "Enter secure login password"}
+                  value={reportPassword}
+                  onChange={(e) => setReportPassword(e.target.value)}
+                  required={!editingReportUser}
+                />
+              </div>
+
+              {/* Company Selection by ID */}
+              <div className="space-y-1.5">
+                <Label htmlFor="repCompanySelect">Assigned Company *</Label>
+                <Select
+                  value={reportUserCompanyId || "NONE"}
+                  onValueChange={(v: string | null) => {
+                    const sel = !v || v === "NONE" ? "" : v;
+                    setReportUserCompanyId(sel);
+                    setReportUserAllowedCamps([]); // Reset allowed camps on company switch
+                  }}
+                >
+                  <SelectTrigger id="repCompanySelect">
+                    <SelectValue placeholder="Select company" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">-- Select Company --</SelectItem>
+                    {allCompaniesList.map((comp) => (
+                      <SelectItem key={comp.id} value={String(comp.id)}>
+                        <span className="font-medium">{comp.name}</span>
+                        <span className="text-muted-foreground text-xs ml-2 font-mono">ID: #{comp.id}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  The Sales Report App will filter analytics strictly according to this company ID.
+                </p>
+              </div>
+
+              {/* Granular Camp Checkboxes */}
+              <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Allowed Camps ({reportUserAllowedCamps.length} of {availableCampsForReportCompany.length} selected)
+                  </Label>
+                  <div className="flex gap-2 text-xs">
+                    <button
+                      type="button"
+                      disabled={!reportUserCompanyId || availableCampsForReportCompany.length === 0}
+                      onClick={() => setReportUserAllowedCamps([...availableCampsForReportCompany])}
+                      className="text-indigo-600 hover:underline font-medium disabled:opacity-50"
+                    >
+                      Select All
+                    </button>
+                    <span>·</span>
+                    <button
+                      type="button"
+                      disabled={!reportUserCompanyId || reportUserAllowedCamps.length === 0}
+                      onClick={() => setReportUserAllowedCamps([])}
+                      className="text-muted-foreground hover:underline disabled:opacity-50"
+                    >
+                      Clear (0 Selected)
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Select the specific camps this viewer is allowed to view in the Sales Report App. If none are selected, they will have access to <strong>0 camps</strong>.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-40 overflow-y-auto">
+                  {!reportUserCompanyId ? (
+                    <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
+                      👈 Please select a company above to view and assign its camps.
+                    </div>
+                  ) : availableCampsForReportCompany.length === 0 ? (
+                    <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
+                      No camps registered under this company yet.
+                    </div>
+                  ) : (
+                    availableCampsForReportCompany.map((camp) => {
+                      const isChecked = reportUserAllowedCamps.some(
+                        (c) => c.toLowerCase() === camp.toLowerCase()
+                      );
+                      return (
+                        <div
+                          key={camp}
+                          onClick={() => toggleReportAllowedCamp(camp)}
+                          className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer select-none transition-all ${
+                            isChecked
+                              ? "bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold dark:bg-indigo-950/50 dark:border-indigo-700 dark:text-indigo-200"
+                              : "bg-card border-border text-slate-700 dark:text-slate-300 hover:bg-muted"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}}
+                            className="size-4 rounded border-gray-300 text-indigo-600 pointer-events-none"
+                          />
+                          <Building2 className="size-3.5 text-muted-foreground" />
+                          <span className="truncate">{camp}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Status Toggle */}
+              <div className="space-y-1.5">
+                <Label htmlFor="repStatus">Account Status</Label>
+                <Select
+                  value={String(reportUserStatus)}
+                  onValueChange={(v) => v && setReportUserStatus(Number(v))}
+                >
+                  <SelectTrigger id="repStatus">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">
+                      <span className="text-emerald-600 font-medium flex items-center gap-1.5">
+                        <CheckCircle2 className="size-3.5" />
+                        Active (Can Login)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="0">
+                      <span className="text-slate-500 font-medium flex items-center gap-1.5">
+                        <XCircle className="size-3.5" />
+                        Disabled (Login Blocked)
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setReportUserModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingReportUser} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                {savingReportUser ? "Saving..." : editingReportUser ? "Update Viewer" : "Create Report Viewer"}
               </Button>
             </DialogFooter>
           </form>

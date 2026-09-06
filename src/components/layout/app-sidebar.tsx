@@ -1,9 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Wifi } from "lucide-react";
+import { Wifi, ShieldCheck, Building2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,10 +69,14 @@ export function AppSidebar() {
   const [showSignoutModal, setShowSignoutModal] = useState(false);
   const [userRole, setUserRole] = useState<string>("superadmin");
 
+  const [companyName, setCompanyName] = useState<string>("");
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const role = localStorage.getItem("admin_user_role") || "superadmin";
+      const comp = localStorage.getItem("admin_company_name") || "";
       setUserRole(role);
+      setCompanyName(comp);
     }
   }, []);
 
@@ -98,13 +103,30 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <div className="flex h-full flex-col bg-[#f3f4f6] dark:bg-sidebar">
-        <div className="brand-gradient px-4 py-5 text-center text-white">
-          <p className="text-lg font-bold tracking-wide">{APP_NAME.toUpperCase()}</p>
-        </div>
+        <SidebarHeader className="border-b bg-white dark:bg-card px-3 py-4 flex flex-col items-center">
+          <div className="w-full flex items-center justify-center p-2 rounded-2xl bg-white dark:bg-slate-900 border shadow-sm">
+            <Image
+              src="/linkfi-logo.png"
+              alt="LinkFi Logo"
+              width={160}
+              height={50}
+              priority
+              className="h-10 w-auto object-contain"
+            />
+          </div>
 
-        <SidebarHeader className="border-b bg-transparent px-3 py-4">
-          <div className="mx-auto flex size-16 items-center justify-center rounded-2xl border-4 border-white bg-white shadow-sm">
-            <Wifi className="size-8 text-[#4A60D6]" />
+          <div className="mt-2 text-center w-full">
+            {userRole === "superadmin" ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                <ShieldCheck className="size-3" />
+                Super Admin
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 truncate max-w-full">
+                <Building2 className="size-3 shrink-0" />
+                <span className="truncate">{companyName ? `Company: ${companyName}` : "Company Admin"}</span>
+              </span>
+            )}
           </div>
           {isConnected && (
             <Select

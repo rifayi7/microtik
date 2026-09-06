@@ -1,4 +1,4 @@
-export const APP_NAME = "My WiFi";
+export const APP_NAME = "LinkFi";
 export const APP_DESCRIPTION =
   "MikroTik hotspot management for network operators";
 
