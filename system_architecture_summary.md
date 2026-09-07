@@ -1,4 +1,4 @@
-﻿# LinkFi - Multi-Platform MikroTik Voucher & Sales Ecosystem
+# LinkFi - Multi-Platform MikroTik Voucher & Sales Ecosystem
 ## Comprehensive System Architecture & Developer Guide
 
 The **LinkFi** ecosystem is an end-to-end, multi-platform solution for managing MikroTik Hotspot networks, generating and printing vouchers, selling/recharging vouchers via a field mobile app, and generating sales/collection analytics.
@@ -51,7 +51,11 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
    - Stores login access for managers, auditors, and company accountants to view the **Sales Report Portal**.
    - Accessible and configurable **strictly by Super Administrators** via the Web Admin Portal (`/admin` -> `Report Viewers`).
    - Fields: `id`, `username`, `password`, `display_name`, `company_id` (FK to `companies.id`), `company_name`, `allowed_camp_ids` (JSON), `status` (1 = active, 0 = disabled).
-3. **Role & Branding Indicators**:
+3. **`sales_persons` (Salespeople & Mobile POS Operators)**:
+   - Identifies POS salespeople bound to specific companies and authorized camps/routers.
+   - Fields: `id`, `username`, `display_name`, `password`, `company_id` (FK to `companies.id`), `company_name`, `allowed_camps` (JSON Array), `allowed_router_ids` (JSON Array of router IDs).
+   - Deprecated static `camp_name` field in favor of dynamic multi-camp permissions via `allowed_camps` and `allowed_router_ids`.
+4. **Role & Branding Indicators**:
    - Web Admin Portal header & sidebar dynamically display account level:
      - `🛡️ Super Administrator`
      - `🏢 Company Admin: {CompanyName}`

@@ -13,20 +13,20 @@ export async function GET(request: Request) {
     
     let query = `
       SELECT 
-        sp.id, sp.username, sp.display_name, sp.password, sp.role, sp.camp_name, 
-        sp.company_name, sp.company_id, sp.allowed_camps, sp.allowed_router_ids, sp.created_at,
+        sp.id, sp.username, sp.display_name, sp.password, sp.role, 
+        sp.company_id, sp.allowed_camps, sp.allowed_router_ids, sp.created_at,
         c.id as resolved_company_id, c.name as resolved_company_name
       FROM sales_persons sp
-      LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id) OR (sp.company_name IS NOT NULL AND LOWER(c.name) = LOWER(sp.company_name))
+      LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
     `;
     const args: any[] = [];
 
     if (authUser && authUser.role !== "superadmin") {
       if (authUser.companyId) {
-        query += " WHERE (sp.company_id = ? OR LOWER(sp.company_name) = LOWER(?)) ";
-        args.push(authUser.companyId, authUser.companyName || "");
+        query += " WHERE sp.company_id = ? ";
+        args.push(authUser.companyId);
       } else if (authUser.companyName) {
-        query += " WHERE LOWER(sp.company_name) = LOWER(?) ";
+        query += " WHERE LOWER(c.name) = LOWER(?) ";
         args.push(authUser.companyName.trim());
       }
     }
@@ -128,20 +128,18 @@ export async function POST(request: Request) {
     const allowedCampsStr = JSON.stringify(campsArray);
     const routerIdsArray = Array.isArray(allowedRouterIds) ? allowedRouterIds : [];
     const allowedRouterIdsStr = JSON.stringify(routerIdsArray);
-    const primaryCamp = campsArray.length > 0 ? campsArray[0] : (campName || "All Camps");
+    const primaryCamp = campsArray.length > 0 ? campsArray[0] : (campName || null);
 
     const insertResult = await database.execute({
       sql: `
-        INSERT INTO sales_persons (username, display_name, password, role, camp_name, company_name, company_id, allowed_camps, allowed_router_ids) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sales_persons (username, display_name, password, role, company_id, allowed_camps, allowed_router_ids) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         username.trim(), 
         (displayName && displayName.trim()) || username.trim(), 
         hashedPassword, 
         role || "salesperson", 
-        primaryCamp,
-        resolvedCompanyName,
         resolvedCompanyId,
         allowedCampsStr,
         allowedRouterIdsStr,
@@ -250,8 +248,6 @@ export async function PUT(request: Request) {
             display_name = COALESCE(?, display_name),
             password = COALESCE(?, password),
             role = COALESCE(?, role),
-            camp_name = COALESCE(?, camp_name),
-            company_name = COALESCE(?, company_name),
             company_id = COALESCE(?, company_id),
             allowed_camps = COALESCE(?, allowed_camps),
             allowed_router_ids = COALESCE(?, allowed_router_ids)
@@ -262,8 +258,6 @@ export async function PUT(request: Request) {
         displayName && displayName.trim() ? displayName.trim() : null,
         hashedPassword,
         role ?? null,
-        primaryCamp ?? null,
-        resolvedCompanyName ?? null,
         resolvedCompanyId ?? null,
         allowedCampsStr ?? null,
         allowedRouterIdsStr ?? null,

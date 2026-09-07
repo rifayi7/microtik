@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const result = await database.execute({
       sql: `
         SELECT 
-          sp.id, sp.username, sp.display_name, sp.role, sp.camp_name, 
+          sp.id, sp.username, sp.display_name, sp.role, 
           sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
           c.id as resolved_company_id, c.name as resolved_company_name,
           COALESCE(c.timezone, 'Asia/Dubai') as company_timezone

@@ -83,7 +83,6 @@ export async function initializeDB() {
       password TEXT NOT NULL,
       display_name TEXT,
       role TEXT DEFAULT 'salesperson',
-      camp_name TEXT DEFAULT 'All Camps',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);

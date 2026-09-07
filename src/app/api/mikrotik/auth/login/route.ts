@@ -22,12 +22,12 @@ export async function POST(request: Request) {
     const result = await database.execute({
       sql: `
         SELECT 
-          sp.id, sp.username, sp.password, sp.display_name, sp.role, sp.camp_name, 
-          sp.company_name, sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
+          sp.id, sp.username, sp.password, sp.display_name, sp.role,
+          sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
           c.id as resolved_company_id, c.name as resolved_company_name,
           COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
         FROM sales_persons sp
-        LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id) OR (sp.company_name IS NOT NULL AND LOWER(c.name) = LOWER(sp.company_name))
+        LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
         WHERE LOWER(sp.username) = LOWER(?) OR LOWER(sp.display_name) = LOWER(?) 
         LIMIT 1
       `,

@@ -106,32 +106,28 @@ export async function GET(request: Request) {
         sql: `
           SELECT 
             COUNT(*) as totalSalesCount,
-            SUM(COALESCE(price_charged, CASE WHEN validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue,
+            SUM(COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue,
             SUM(CASE 
-              WHEN (${usedAtDateExpr} = ${todayExpr} OR date(used_at) = date('now') OR date(used_at) = date('now', 'localtime')) THEN
-                CASE 
-                  WHEN validity_days = 30 THEN 1.0
-                  WHEN validity_days = 15 THEN 0.5
-                  WHEN validity_days = 7 THEN 0.25
-                  ELSE CAST(validity_days AS REAL) / 30.0
-                END
+              WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN
+                COALESCE(vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
               ELSE 0 
             END) as todaySalesCount,
             SUM(CASE 
-              WHEN (${usedAtDateExpr} = ${todayExpr} OR date(used_at) = date('now') OR date(used_at) = date('now', 'localtime')) THEN 
-                COALESCE(price_charged, CASE WHEN validity_days = 30 THEN 32 ELSE 16 END)
+              WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN 
+                COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
               ELSE 0 
             END) as todayRevenue,
-            SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySalesCount,
+            SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySalesCount,
             SUM(CASE 
-              WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', used_at) = strftime('%Y-%m', 'now')) THEN 
-                COALESCE(price_charged, CASE WHEN validity_days = 30 THEN 32 ELSE 16 END)
+              WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
+                COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
               ELSE 0 
             END) as monthlyRevenue
-          FROM vouchers
-          WHERE status = 'redeemed' AND (
-            (sales_person_id IS NOT NULL AND sales_person_id = ?)
-            OR (sold_by IS NOT NULL AND (sold_by = ? OR sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
+          FROM vouchers v
+          LEFT JOIN validity_profiles vp ON (vp.name = v.validity_days || '-Days' OR vp.name = v.validity_days || '-D' OR vp.name = CAST(v.validity_days AS TEXT))
+          WHERE v.status = 'redeemed' AND (
+            (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
+            OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
           )
         `,
         args: [targetIdVal, targetUserVal, targetIdVal, targetUserVal],
