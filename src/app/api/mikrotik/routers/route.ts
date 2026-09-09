@@ -95,7 +95,7 @@ export async function GET(request: Request) {
       sessionTimeout: String(row.sessionTimeout ?? "30 minutes"),
       liveReport: Boolean(row.liveReport ?? true),
       phone: String(row.phone ?? ""),
-      camp: row.company_name ? String(row.company_name) : (row.camp ? String(row.camp) : undefined),
+      camp: row.camp ? String(row.camp) : (row.sessionName ? String(row.sessionName) : (row.company_name ? String(row.company_name) : undefined)),
       company: row.company_name ? String(row.company_name) : undefined,
       companyId: row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : undefined),
       serialNumber: row.serialNumber ? String(row.serialNumber) : undefined,
