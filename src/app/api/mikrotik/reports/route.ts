@@ -53,11 +53,10 @@ async function handleRequest(request: Request) {
     if (company && company.trim()) {
       conditions.push(`v.router_id IN (
         SELECT r.id FROM routers r 
-        WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (
-          SELECT LOWER(name) FROM camps WHERE LOWER(company_name) = LOWER(?)
-        )
+        LEFT JOIN companies c ON r.company_id = c.id
+        WHERE LOWER(c.name) = LOWER(?) OR (r.camp IS NOT NULL AND LOWER(r.camp) = LOWER(?))
       )`);
-      args.push(company.trim());
+      args.push(company.trim(), company.trim());
     }
 
     let allowedCamps: string[] = authUser?.allowedCamps || [];

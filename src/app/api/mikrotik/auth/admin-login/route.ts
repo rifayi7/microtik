@@ -98,12 +98,12 @@ export async function POST(request: Request) {
     const resolvedCompanyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
     const compName = String(row.resolved_company_name || row.company_name || "");
 
-    // Fetch camps assigned to this company (by ID or name)
-    const campsResult = await database.execute({
-      sql: "SELECT name FROM camps WHERE (company_id IS NOT NULL AND company_id = ?) OR (company_name IS NOT NULL AND LOWER(company_name) = LOWER(?))",
-      args: [resolvedCompanyId ?? -1, compName],
+    // Fetch active routers assigned to this company (by ID)
+    const routersResult = await database.execute({
+      sql: "SELECT sessionName FROM routers WHERE (company_id IS NOT NULL AND company_id = ?) AND (is_active = 1 OR is_active IS NULL)",
+      args: [resolvedCompanyId ?? -1],
     });
-    const companyCamps = campsResult.rows.map((r) => String(r.name));
+    const companyCamps = routersResult.rows.map((r) => String(r.sessionName));
 
     const user = {
       id: Number(row.id),

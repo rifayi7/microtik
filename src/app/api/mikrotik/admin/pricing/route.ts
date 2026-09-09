@@ -25,44 +25,28 @@ export async function GET() {
       status: Number(row.status ?? 1),
     }));
 
-    // 2. Get all distinct registered camps with their company IDs and names
+    // 2. Get all distinct registered locations/routers with their company IDs and names directly from routers & companies
     const campsResult = await database.execute(`
       SELECT 
-        c.id as camp_id, 
-        c.name, 
-        COALESCE(c.company_id, comp.id) as company_id,
-        COALESCE(c.company_name, comp.name) as company_name 
-      FROM camps c 
-      LEFT JOIN companies comp ON (c.company_id IS NOT NULL AND comp.id = c.company_id) 
-                               OR (c.company_name IS NOT NULL AND LOWER(comp.name) = LOWER(c.company_name))
-      WHERE c.name IS NOT NULL AND c.name != ''
-      UNION
-      SELECT 
-        NULL as camp_id,
-        COALESCE(r.camp, r.sessionName) as name, 
-        COALESCE(r.company_id, c2.company_id, comp2.id) as company_id,
-        COALESCE(c2.company_name, comp2.name) as company_name
-      FROM routers r
-      LEFT JOIN camps c2 ON LOWER(c2.name) = LOWER(COALESCE(r.camp, r.sessionName))
-      LEFT JOIN companies comp2 ON (r.company_id IS NOT NULL AND comp2.id = r.company_id)
-                                OR (c2.company_name IS NOT NULL AND LOWER(comp2.name) = LOWER(c2.company_name))
-      WHERE COALESCE(r.camp, r.sessionName) IS NOT NULL
+        r.id as router_id,
+        r.sessionName as name, 
+        r.company_id,
+        c.name as company_name 
+      FROM routers r 
+      LEFT JOIN companies c ON r.company_id = c.id
+      WHERE (r.is_active = 1 OR r.is_active IS NULL)
     `);
     const registeredCamps = Array.from(new Set(campsResult.rows.map((r) => String(r.name))));
     const campsWithCompany = campsResult.rows.map((r) => ({
-      campId: r.camp_id ? Number(r.camp_id) : null,
+      campId: r.router_id ? String(r.router_id) : null,
       name: String(r.name),
       companyId: r.company_id ? Number(r.company_id) : null,
       companyName: r.company_name ? String(r.company_name) : null,
     }));
 
-    // 3. Get distinct companies (from companies table, camps table, and company_admins table)
+    // 3. Get distinct companies directly from companies table
     const compResult = await database.execute(`
       SELECT DISTINCT name FROM companies WHERE name IS NOT NULL AND name != ''
-      UNION
-      SELECT DISTINCT company_name as name FROM camps WHERE company_name IS NOT NULL AND company_name != ''
-      UNION
-      SELECT DISTINCT company_name as name FROM company_admins WHERE company_name IS NOT NULL AND company_name != ''
     `);
     const companies = Array.from(new Set(compResult.rows.map((r) => String(r.name))));
     if (companies.length === 0) {

@@ -72,12 +72,17 @@ export async function GET(request: Request) {
 
     const isFilteredBySalesperson = Boolean(targetUserId || targetUsername);
 
-    // Get company camp names if company filter is active
+    // Get company router names if company filter is active
     let companyCampNames: string[] = [];
     if (companyParam && companyParam.trim()) {
       const campRes = await database.execute({
-        sql: "SELECT name FROM camps WHERE LOWER(company_name) = LOWER(?)",
-        args: [companyParam.trim()],
+        sql: `
+          SELECT r.sessionName as name
+          FROM routers r
+          LEFT JOIN companies c ON r.company_id = c.id
+          WHERE LOWER(c.name) = LOWER(?) OR (r.camp IS NOT NULL AND LOWER(r.camp) = LOWER(?))
+        `,
+        args: [companyParam.trim(), companyParam.trim()],
       });
       companyCampNames = campRes.rows.map((r) => String(r.name).toLowerCase());
     }
