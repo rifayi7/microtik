@@ -112,7 +112,21 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
 
 ---
 
-## ?? End-to-End API Security & Parameter Tamper-Proofing
+## 🛡️ Super Administrator Dynamic Management & Bootstrap Architecture
+
+1. **Dedicated Database Storage**:
+   - Stored dynamically in the `super_admins` table (`id`, `username`, `display_name`, `password`, `created_at`).
+   - Initialized / seeded via the idempotent script `npm run bootstrap:superadmin` (`scripts/bootstrap-superadmin.mjs`) on Turso Cloud.
+2. **Web Admin UI & REST API Management**:
+   - Super Admins can manage other Super Admin accounts directly from the Web Admin Portal (`/admin` -> `🛡️ Super Admins` tab) with full CRUD operations (`/api/mikrotik/admin/super-admins`).
+3. **Cross-Table Conflict Prevention**:
+   - Super Admin usernames and Company Admin usernames are cross-checked across both tables with a privacy-preserving neutral error message (`"This username is already taken. Please choose another one."`).
+4. **Failsafe Fallback**:
+   - Hardcoded emergency credentials (`admin`/`admin123`) are only enabled if the `super_admins` table is completely empty (0 rows).
+
+---
+
+## 🔒 End-to-End API Security & Parameter Tamper-Proofing
 
 1. **Strict Server-Side Authorization (`requireAuth` & `buildWhereClauseAsync`)**:
    - Every protected API route validates JWT bearer tokens, signature integrity, and active tenant status.
@@ -121,5 +135,5 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
    - Attack vector mitigated: Malicious clients attempting to append or modify query parameters (e.g. `allowedCamps`, `companyId`, `userType`, `routerId`) cannot escalate permissions or view other companies'/camps' sales logs, summaries, or payments.
    - Any query specifying unauthorized camp or router identifiers is filtered out or rejected with HTTP 403 `Access Denied`.
 3. **Password Security Standard**:
-   - Uses Node.js native `scrypt` hashing with unique per-password cryptographic salts across all ecosystem tables (`sales_persons`, `report_users`, `company_admins`).
-   - Backward-compatible auto-upgrade smoothly migrates legacy credentials upon successful login.
+   - Uses Node.js native `scrypt` hashing with unique per-password cryptographic salts across all ecosystem tables (`super_admins`, `company_admins`, `sales_persons`, `report_users`).
+   - Backward-compatible auto-upgrade smoothly migrates legacy credentials upon successful login (`needsRehash` transparently upgrades DB record to `scrypt`).

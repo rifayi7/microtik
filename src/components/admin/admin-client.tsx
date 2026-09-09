@@ -1087,6 +1087,20 @@ export function AdminClient() {
       a.displayName.toLowerCase().includes(superAdminSearch.toLowerCase())
   );
 
+  const filteredNotifications = notifications.filter((n) => {
+    const matchesSearch =
+      n.title.toLowerCase().includes(notifSearch.toLowerCase()) ||
+      n.message.toLowerCase().includes(notifSearch.toLowerCase()) ||
+      (n.companyName && n.companyName.toLowerCase().includes(notifSearch.toLowerCase()));
+
+    const matchesCompany =
+      selectedCompanyFilter === "ALL" ||
+      (n.targetType === "COMPANY" && n.companyName && n.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase()) ||
+      n.targetType === "ALL";
+
+    return matchesSearch && matchesCompany;
+  });
+
   return (
     <div className="space-y-6">
       {/* Dynamic suggestions datalist for company input */}
