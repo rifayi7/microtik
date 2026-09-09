@@ -249,18 +249,6 @@ export function AdminClient() {
   const [notifTargetType, setNotifTargetType] = useState("ALL");
   const [notifCompanyId, setNotifCompanyId] = useState("");
   const [savingNotif, setSavingNotif] = useState(false);
-  const [notifSearch, setNotifSearch] = useState("");
-
-  // Super Admins State (Root Access)
-  const [superAdmins, setSuperAdmins] = useState<SuperAdmin[]>([]);
-  const [superAdminSearch, setSuperAdminSearch] = useState("");
-  const [superAdminModalOpen, setSuperAdminModalOpen] = useState(false);
-  const [editingSuperAdmin, setEditingSuperAdmin] = useState<SuperAdmin | null>(null);
-  const [superUsername, setSuperUsername] = useState("");
-  const [superDisplayName, setSuperDisplayName] = useState("");
-  const [superPassword, setSuperPassword] = useState("");
-  const [savingSuperAdmin, setSavingSuperAdmin] = useState(false);
-
   // Suspend / Pause Company Modal State
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
   const [selectedCompanyToPause, setSelectedCompanyToPause] = useState<CompanyAdmin | null>(null);
@@ -271,7 +259,7 @@ export function AdminClient() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, pricingRes, companiesRes, reportUsersRes, notifsRes, superAdminsRes] = await Promise.all([
+      const [usersRes, pricingRes, companiesRes, reportUsersRes, notifsRes] = await Promise.all([
         fetchMikrotikApi<{ users: AdminUser[] }>("/api/mikrotik/admin/users"),
         fetchMikrotikApi<{
           campPricing: CampPricing[];
@@ -287,10 +275,7 @@ export function AdminClient() {
         }>("/api/mikrotik/admin/companies").catch(() => ({ companies: [], companyAdmins: [] })),
         fetchMikrotikApi<{ reportUsers: ReportUser[] }>("/api/mikrotik/admin/report-users").catch(() => ({ reportUsers: [] })),
         fetchMikrotikApi<{ notifications: BroadcastNotification[] }>("/api/mikrotik/admin/notifications").catch(() => ({ notifications: [] })),
-        fetchMikrotikApi<{ superAdmins: SuperAdmin[] }>("/api/mikrotik/admin/super-admins").catch(() => ({ superAdmins: [] })),
       ]);
-
-      if (superAdminsRes.superAdmins) setSuperAdmins(superAdminsRes.superAdmins);
 
       if (usersRes.users) setUsers(usersRes.users);
       if (pricingRes.campPricing) setCampPricing(pricingRes.campPricing);
@@ -998,94 +983,7 @@ export function AdminClient() {
     }
   };
 
-  // ── Super Admin Handlers ──
-  const handleOpenAddSuperAdmin = () => {
-    setEditingSuperAdmin(null);
-    setSuperUsername("");
-    setSuperDisplayName("");
-    setSuperPassword("");
-    setSuperAdminModalOpen(true);
-  };
-
-  const handleOpenEditSuperAdmin = (admin: SuperAdmin) => {
-    setEditingSuperAdmin(admin);
-    setSuperUsername(admin.username);
-    setSuperDisplayName(admin.displayName);
-    setSuperPassword("");
-    setSuperAdminModalOpen(true);
-  };
-
-  const handleSaveSuperAdmin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!superUsername.trim() || (!editingSuperAdmin && !superPassword.trim())) {
-      toast.error("Username and password are required");
-      return;
-    }
-
-    setSavingSuperAdmin(true);
-    try {
-      if (editingSuperAdmin) {
-        await fetchMikrotikApi("/api/mikrotik/admin/super-admins", {
-          method: "PUT",
-          body: JSON.stringify({
-            id: editingSuperAdmin.id,
-            username: superUsername.trim(),
-            displayName: superDisplayName.trim() || superUsername.trim(),
-            password: superPassword.trim() || undefined,
-          }),
-        });
-        toast.success(`Super Admin "${superUsername}" updated successfully!`);
-      } else {
-        await fetchMikrotikApi("/api/mikrotik/admin/super-admins", {
-          method: "POST",
-          body: JSON.stringify({
-            username: superUsername.trim(),
-            displayName: superDisplayName.trim() || superUsername.trim(),
-            password: superPassword.trim(),
-          }),
-        });
-        toast.success(`Super Admin "${superUsername}" created successfully!`);
-      }
-
-      setSuperAdminModalOpen(false);
-      setEditingSuperAdmin(null);
-      setSuperUsername("");
-      setSuperDisplayName("");
-      setSuperPassword("");
-      await loadData();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save super administrator");
-    } finally {
-      setSavingSuperAdmin(false);
-    }
-  };
-
-  const handleDeleteSuperAdmin = async (admin: SuperAdmin) => {
-    if (superAdmins.length <= 1) {
-      toast.error("Cannot delete the only remaining Super Administrator account.");
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to remove Super Administrator "${admin.displayName || admin.username}"?`)) {
-      return;
-    }
-
-    try {
-      await fetchMikrotikApi(`/api/mikrotik/admin/super-admins?id=${admin.id}`, {
-        method: "DELETE",
-      });
-      toast.success(`Super Admin "${admin.username}" deleted`);
-      setSuperAdmins((prev) => prev.filter((a) => a.id !== admin.id));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete super admin");
-    }
-  };
-
-  const filteredSuperAdmins = superAdmins.filter(
-    (a) =>
-      a.username.toLowerCase().includes(superAdminSearch.toLowerCase()) ||
-      a.displayName.toLowerCase().includes(superAdminSearch.toLowerCase())
-  );
+  const [notifSearch, setNotifSearch] = useState("");
 
   const filteredNotifications = notifications.filter((n) => {
     const matchesSearch =
@@ -1137,10 +1035,6 @@ export function AdminClient() {
           <TabsTrigger value="reports_users" className="gap-2">
             <BarChart3 className="size-4" />
             Report Viewers ({reportUsers.length})
-          </TabsTrigger>
-          <TabsTrigger value="super_admins" className="gap-2">
-            <ShieldCheck className="size-4 text-amber-500" />
-            Super Admins ({superAdmins.length})
           </TabsTrigger>
           <TabsTrigger value="notifications" className="gap-2">
             <Bell className="size-4" />
@@ -1880,163 +1774,7 @@ export function AdminClient() {
             </Table>
           </div>
         </TabsContent>
-        {/* ── TAB 5: SUPER ADMINISTRATORS (ROOT ACCESS) ── */}
-        <TabsContent value="super_admins" className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="relative w-full sm:w-72">
-              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                placeholder="Search super admins..."
-                value={superAdminSearch}
-                onChange={(e) => setSuperAdminSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button onClick={handleOpenAddSuperAdmin} className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white gap-2">
-              <ShieldCheck className="size-4" />
-              Add Super Admin
-            </Button>
-          </div>
-
-          <div className="rounded-md border bg-card overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="w-[80px]">ID</TableHead>
-                  <TableHead>Display Name</TableHead>
-                  <TableHead>Username</TableHead>
-                  <TableHead>Role / Access</TableHead>
-                  <TableHead>Created Date</TableHead>
-                  <TableHead className="w-[100px] text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSuperAdmins.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      No Super Administrators found.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredSuperAdmins.map((admin) => (
-                    <TableRow key={admin.id} className="hover:bg-muted/30">
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        #{admin.id}
-                      </TableCell>
-                      <TableCell className="font-semibold text-foreground flex items-center gap-2">
-                        <div className="size-8 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 flex items-center justify-center font-bold text-xs">
-                          {admin.displayName ? admin.displayName.charAt(0).toUpperCase() : "A"}
-                        </div>
-                        {admin.displayName}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {admin.username}
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400">
-                          <ShieldCheck className="size-3" />
-                          Global Super Admin
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : "Master"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => handleOpenEditSuperAdmin(admin)}
-                            title="Edit / Reset Password"
-                          >
-                            <Key className="size-4 text-blue-600" />
-                          </Button>
-                          {superAdmins.length > 1 && (
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => void handleDeleteSuperAdmin(admin)}
-                              title="Delete Super Admin"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
       </Tabs>
-
-      {/* ── MODAL: ADD / EDIT SUPER ADMIN ── */}
-      <Dialog open={superAdminModalOpen} onOpenChange={setSuperAdminModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={handleSaveSuperAdmin}>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-amber-600">
-                <ShieldCheck className="size-5" />
-                {editingSuperAdmin ? `Edit Super Admin (${editingSuperAdmin.username})` : "Add Super Administrator"}
-              </DialogTitle>
-              <DialogDescription>
-                Super Administrators have full unrestricted access to all company accounts, routers, sales, and system settings.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4 py-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="superUsername">Username *</Label>
-                <Input
-                  id="superUsername"
-                  placeholder="e.g. rifayi_admin"
-                  value={superUsername}
-                  onChange={(e) => setSuperUsername(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="superDisplayName">Display Name *</Label>
-                <Input
-                  id="superDisplayName"
-                  placeholder="e.g. Rifayi (System Owner)"
-                  value={superDisplayName}
-                  onChange={(e) => setSuperDisplayName(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="superPassword">
-                  {editingSuperAdmin ? "New Password (Leave empty to keep current)" : "Login Password *"}
-                </Label>
-                <Input
-                  id="superPassword"
-                  type="password"
-                  placeholder={editingSuperAdmin ? "Enter new password" : "Enter strong password"}
-                  value={superPassword}
-                  onChange={(e) => setSuperPassword(e.target.value)}
-                  required={!editingSuperAdmin}
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setSuperAdminModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={savingSuperAdmin} className="bg-amber-600 hover:bg-amber-700 text-white gap-2">
-                <ShieldCheck className="size-4" />
-                {savingSuperAdmin ? "Saving..." : editingSuperAdmin ? "Update Super Admin" : "Create Super Admin"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       {/* ── MODAL: ADD / EDIT SALESPEOPLE ── */}
       <Dialog open={userModalOpen} onOpenChange={setUserModalOpen}>
