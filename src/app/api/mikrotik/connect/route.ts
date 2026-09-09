@@ -4,7 +4,7 @@ import {
   mikrotikErrorResponse,
 } from "@/lib/mikrotik/api-utils";
 import { getRouterConfigById, isMikrotikConfigured } from "@/lib/mikrotik/config";
-import { testRouterConnection, syncRouterUsersToDb } from "@/lib/mikrotik/queries";
+import { testRouterConnection } from "@/lib/mikrotik/queries";
 import { getDB } from "@/lib/db";
 
 export const runtime = "nodejs";
