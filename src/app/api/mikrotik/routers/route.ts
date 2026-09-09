@@ -325,14 +325,25 @@ export async function POST(request: Request) {
 
     // 5. Seed default pricing plans for this router linked by router_id and company_id
     try {
+      let finalCompanyName = companyName ? String(companyName).trim() : null;
+      if (!finalCompanyName && resolvedCompanyId) {
+        const cRes = await database.execute({
+          sql: "SELECT name FROM companies WHERE id = ?",
+          args: [resolvedCompanyId],
+        });
+        if (cRes.rows.length > 0) {
+          finalCompanyName = String(cRes.rows[0].name);
+        }
+      }
+
       await database.batch([
         {
           sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          args: [sessionName.trim(), "15-Days", companyName || "Company", resolvedCompanyId, targetId, 16, 1],
+          args: [sessionName.trim(), "15-Days", finalCompanyName, resolvedCompanyId, targetId, 16, 1],
         },
         {
           sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          args: [sessionName.trim(), "30-Days", companyName || "Company", resolvedCompanyId, targetId, 32, 1],
+          args: [sessionName.trim(), "30-Days", finalCompanyName, resolvedCompanyId, targetId, 32, 1],
         },
       ], "write");
     } catch (e) {

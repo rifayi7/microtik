@@ -26,16 +26,6 @@ export async function POST(request: Request) {
 
     const db = await getDB();
 
-    // Auto-seed vouchers if none exist for this router
-    const checkResult = await db.execute({
-      sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
-      args: [config.id],
-    });
-    const count = Number(checkResult.rows[0]?.count ?? 0);
-    if (count === 0) {
-      await seedVouchersForRouter(config.id);
-    }
-
     const { status, page = 1, limit = 50 } = body as {
       status?: string;
       page?: number;

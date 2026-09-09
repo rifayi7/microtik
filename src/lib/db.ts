@@ -239,19 +239,19 @@ export async function initializeDB() {
 
   // Auto-backfill existing records to populate IDs seamlessly
   try {
-    // 1. Populate companies table from distinct company names
+    // 1. Populate companies table from distinct real company names (excluding generic placeholders)
     const distinctCompanies = await db.execute(`
       SELECT DISTINCT name FROM (
-        SELECT company_name as name FROM sales_persons WHERE company_name IS NOT NULL AND TRIM(company_name) != ''
+        SELECT company_name as name FROM sales_persons WHERE company_name IS NOT NULL AND TRIM(company_name) != '' AND LOWER(company_name) NOT IN ('company', 'all camps')
         UNION
-        SELECT company_name as name FROM camps WHERE company_name IS NOT NULL AND TRIM(company_name) != ''
+        SELECT company_name as name FROM camps WHERE company_name IS NOT NULL AND TRIM(company_name) != '' AND LOWER(company_name) NOT IN ('company', 'all camps')
         UNION
-        SELECT company_name as name FROM camp_validity_pricing WHERE company_name IS NOT NULL AND TRIM(company_name) != ''
+        SELECT company_name as name FROM camp_validity_pricing WHERE company_name IS NOT NULL AND TRIM(company_name) != '' AND LOWER(company_name) NOT IN ('company', 'all camps')
       )
     `);
     for (const r of distinctCompanies.rows) {
       const compName = String(r.name).trim();
-      if (compName) {
+      if (compName && compName.toLowerCase() !== "company") {
         await db.execute({
           sql: "INSERT OR IGNORE INTO companies (name) VALUES (?)",
           args: [compName],
