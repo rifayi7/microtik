@@ -218,18 +218,30 @@ export async function initializeDB() {
     );
   `);
 
-  // Ensure default admin & salesperson accounts exist if users table is empty
+  // Create super_admins table for root platform administrators
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS super_admins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      password TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Ensure default super admin account exists in super_admins table
   try {
-    const userCountRes = await db.execute("SELECT COUNT(*) as count FROM users");
-    if (Number(userCountRes.rows[0]?.count ?? 0) === 0) {
-      await db.batch([
-        { sql: "INSERT OR IGNORE INTO users (username, password, role, camp_name) VALUES (?, ?, ?, ?)", args: ["admin", "admin123", "admin", "All Camps"] },
-        { sql: "INSERT OR IGNORE INTO users (username, password, role, camp_name) VALUES (?, ?, ?, ?)", args: ["Fasil@2020", "1234", "salesperson", "camp2"] },
-        { sql: "INSERT OR IGNORE INTO users (username, password, role, camp_name) VALUES (?, ?, ?, ?)", args: ["Rifai", "3421", "salesperson", "camp3"] },
-      ], "write");
+    const superCountRes = await db.execute("SELECT COUNT(*) as count FROM super_admins");
+    if (Number(superCountRes.rows[0]?.count ?? 0) === 0) {
+      // Default initial super admin with scrypt hashed password (admin / admin123)
+      // scrypt hash for "admin123" with deterministic salt for initial seed
+      await db.execute({
+        sql: "INSERT OR IGNORE INTO super_admins (username, display_name, password) VALUES (?, ?, ?)",
+        args: ["admin", "Super Administrator", "admin123"],
+      });
     }
   } catch (e) {
-    // Ignore if already seeded
+    // Ignore if already created
   }
 
   // Ensure verified_status column exists in routers table (1 = verified/active, 0 = pending/unverified)

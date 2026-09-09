@@ -194,13 +194,18 @@ export async function POST(request: Request) {
         });
         return NextResponse.json({ success: true, message: "Company admin updated successfully" });
       } else {
-        const existing = await database.execute({
-          sql: "SELECT id FROM company_admins WHERE username = ?",
+        // Neutral cross-table uniqueness check (super_admins + company_admins)
+        const inCompany = await database.execute({
+          sql: "SELECT id FROM company_admins WHERE LOWER(username) = LOWER(?)",
+          args: [username.trim()],
+        });
+        const inSuper = await database.execute({
+          sql: "SELECT id FROM super_admins WHERE LOWER(username) = LOWER(?)",
           args: [username.trim()],
         });
 
-        if (existing.rows.length > 0) {
-          return NextResponse.json({ success: false, error: "This admin username already exists" }, { status: 400 });
+        if (inCompany.rows.length > 0 || inSuper.rows.length > 0) {
+          return NextResponse.json({ success: false, error: "This username is already taken. Please choose another one." }, { status: 400 });
         }
 
         if (!resolvedCompanyId) {

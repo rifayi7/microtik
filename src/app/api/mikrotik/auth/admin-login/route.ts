@@ -22,35 +22,101 @@ export async function POST(request: Request) {
     const trimmedUser = username.trim();
     const trimmedPass = password.trim();
 
-    // 1. Super Admin Authentication Check
+    const database = await getDB();
+
+    // 1. Super Admin Authentication Check against super_admins table
+    try {
+      const superRes = await database.execute({
+        sql: "SELECT id, username, display_name, password FROM super_admins WHERE LOWER(username) = LOWER(?) LIMIT 1",
+        args: [trimmedUser],
+      });
+
+      if (superRes.rows.length > 0) {
+        const row = superRes.rows[0];
+        const storedPassword = String(row.password || "");
+        const isPasswordValid = verifyPassword(trimmedPass, storedPassword);
+
+        if (!isPasswordValid) {
+          return NextResponse.json(
+            { success: false, error: "Invalid username or password" },
+            { status: 401 }
+          );
+        }
+
+        // Auto-upgrade password hash if needed
+        if (needsRehash(storedPassword)) {
+          try {
+            const secureHash = hashPassword(trimmedPass);
+            await database.execute({
+              sql: "UPDATE super_admins SET password = ? WHERE id = ?",
+              args: [secureHash, Number(row.id)],
+            });
+          } catch (rehashErr) {
+            console.warn("Failed to auto-upgrade super admin password hash:", rehashErr);
+          }
+        }
+
+        const user = {
+          id: Number(row.id),
+          username: String(row.username),
+          displayName: String(row.display_name || "Super Administrator"),
+          role: "superadmin" as const,
+          companyName: null,
+          allowedCamps: [] as string[],
+        };
+
+        const token = signJwt({
+          sub: user.username,
+          userId: user.id,
+          displayName: user.displayName,
+          role: user.role,
+          companyName: user.companyName,
+          allowedCamps: user.allowedCamps,
+        });
+
+        return NextResponse.json({
+          success: true,
+          user,
+          token,
+        });
+      }
+    } catch (err) {
+      console.warn("Error querying super_admins table:", err);
+    }
+
+    // Emergency Super Admin Failsafe (allowed only if super_admins table has 0 registered users)
     if (trimmedUser.toLowerCase() === "admin" && trimmedPass === "admin123") {
-      const user = {
-        id: 0,
-        username: "admin",
-        displayName: "Super Administrator",
-        role: "superadmin" as const,
-        companyName: null,
-        allowedCamps: [],
-      };
+      try {
+        const countRes = await database.execute("SELECT COUNT(*) as count FROM super_admins");
+        if (Number(countRes.rows[0]?.count ?? 0) === 0) {
+          const user = {
+            id: 0,
+            username: "admin",
+            displayName: "Super Administrator",
+            role: "superadmin" as const,
+            companyName: null,
+            allowedCamps: [],
+          };
 
-      const token = signJwt({
-        sub: user.username,
-        userId: user.id,
-        displayName: user.displayName,
-        role: user.role,
-        companyName: user.companyName,
-        allowedCamps: user.allowedCamps,
-      });
+          const token = signJwt({
+            sub: user.username,
+            userId: user.id,
+            displayName: user.displayName,
+            role: user.role,
+            companyName: user.companyName,
+            allowedCamps: user.allowedCamps,
+          });
 
-      return NextResponse.json({
-        success: true,
-        user,
-        token,
-      });
+          return NextResponse.json({
+            success: true,
+            user,
+            token,
+          });
+        }
+      } catch {}
     }
 
     // 2. Company Admin Authentication Check against company_admins table
-    const database = await getDB();
     const result = await database.execute({
       sql: `
         SELECT 
