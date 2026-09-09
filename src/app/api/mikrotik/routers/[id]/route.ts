@@ -259,12 +259,13 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Router not found or cannot be deleted (e.g. read-only env config)." }, { status: 404 });
     }
 
+    // Soft Delete: Keep DB row intact to protect accounting & voucher sales history, mark inactive
     await database.execute({
-      sql: "DELETE FROM routers WHERE id = ?",
+      sql: "UPDATE routers SET is_active = 0, deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
       args: [id],
     });
 
-    return NextResponse.json({ success: true, message: "Router deleted successfully." });
+    return NextResponse.json({ success: true, message: "Router removed from active list." });
   } catch (error) {
     return mikrotikErrorResponse(error, "Failed to delete router");
   }

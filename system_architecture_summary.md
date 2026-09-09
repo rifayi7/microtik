@@ -60,3 +60,17 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
      - `🛡️ Super Administrator`
      - `🏢 Company Admin: {CompanyName}`
    - Official branding updated across web surfaces to **LinkFi** featuring the official logo.
+
+---
+
+## 📡 Router Hardware Discovery, Deduplication & Lifecycle (`rout-plan-2`)
+
+1. **Hardware Discovery via `/api/mikrotik/routers/test`**:
+   - Queries `/system/routerboard`, `/system/resource`, `/system/identity`, and `/ip/cloud`.
+   - Extracts hardware `serial-number`, `board-name`, `version`, and Cloud DNS (`*.sn.mynetname.net`).
+2. **Deterministic Hardware Router IDs**:
+   - `router-[serialNumber]` (e.g. `router-HE4089A12B`) or `router-[cloudPrefix]`.
+   - Uniquely identifies physical hardware and prevents duplicate records under different names.
+3. **Soft-Delete & Automatic Reactivation**:
+   - Deleting a router marks `is_active = 0` and `deleted_at = CURRENT_TIMESTAMP`, keeping historical voucher transactions and sales reports 100% intact.
+   - Re-adding the same physical router automatically reactivates the record (`is_active = 1`) and preserves historical links.

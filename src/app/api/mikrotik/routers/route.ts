@@ -1,99 +1,76 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
-import { getConfiguredRouters, isMikrotikConfigured } from "@/lib/mikrotik/config";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
-import { fetchHotspotUsersForRouter, testRouterConnection } from "@/lib/mikrotik/queries";
+import { testRouterConnection } from "@/lib/mikrotik/queries";
 import { extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
+// GET /api/mikrotik/routers
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
+    const { searchParams } = new URL(request.url);
+    const verifiedOnly = searchParams.get("verified") === "true";
+    const companyFilter = searchParams.get("company");
+    const salespersonFilter = searchParams.get("salesperson");
+    const salesPersonIdFilter = searchParams.get("salesPersonId");
+    
     let authUser = extractAuthToken(request);
-    const verifiedOnly = url.searchParams.get("verified") === "true";
-    let companyFilter = url.searchParams.get("company");
-    const salespersonParam = url.searchParams.get("salesperson");
-    const salesPersonIdParam = url.searchParams.get("salesPersonId");
-
+    
     const database = await getDB();
-
-    // Dynamically query latest allowed_camps and company from DB if we have authUser or query params
-    const lookupUserId = authUser?.userId || (salesPersonIdParam ? Number(salesPersonIdParam) : null);
-    const lookupUsername = authUser?.sub || (salespersonParam ? String(salespersonParam).trim() : null);
-
-    if (lookupUserId || lookupUsername) {
-      const spRes = await database.execute({
-        sql: "SELECT id, username, display_name, role, camp_name, company_name, company_id, allowed_camps, allowed_router_ids FROM sales_persons WHERE id = ? OR username = ? OR display_name = ?",
-        args: [
-          lookupUserId ? Number(lookupUserId) : -1,
-          lookupUsername ? String(lookupUsername) : "-1",
-          lookupUsername ? String(lookupUsername) : "-1",
-        ],
-      });
-
-      if (spRes.rows.length > 0) {
-        const row = spRes.rows[0];
-        let liveAllowedCamps: string[] = [];
-        if (row.allowed_camps) {
-          try {
-            liveAllowedCamps = JSON.parse(String(row.allowed_camps));
-          } catch {
-            liveAllowedCamps = [String(row.allowed_camps)];
+    
+    // Dynamically query latest allowed_camps, allowed_router_ids, and company_id from DB
+    if (!authUser && (salesPersonIdFilter || salespersonFilter)) {
+      try {
+        const spRes = await database.execute({
+          sql: "SELECT id, username, display_name, role, company_id, allowed_camps, allowed_router_ids FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
+          args: [salesPersonIdFilter || "", salespersonFilter || "", salespersonFilter || ""],
+        });
+        if (spRes.rows.length > 0) {
+          const row = spRes.rows[0];
+          let liveAllowedCamps: string[] = [];
+          let liveAllowedRouterIds: string[] = [];
+          if (row.allowed_camps) {
+            try {
+              liveAllowedCamps = JSON.parse(String(row.allowed_camps));
+            } catch {
+              liveAllowedCamps = [String(row.allowed_camps)];
+            }
           }
-        } else if (row.camp_name && row.camp_name !== "All Camps") {
-          liveAllowedCamps = [String(row.camp_name)];
-        }
-
-        let liveAllowedRouterIds: string[] = [];
-        if (row.allowed_router_ids) {
-          try {
-            liveAllowedRouterIds = JSON.parse(String(row.allowed_router_ids));
-          } catch {
-            liveAllowedRouterIds = [String(row.allowed_router_ids)];
+          if (row.allowed_router_ids) {
+            try {
+              liveAllowedRouterIds = JSON.parse(String(row.allowed_router_ids));
+            } catch {
+              liveAllowedRouterIds = [String(row.allowed_router_ids)];
+            }
           }
+          authUser = {
+            sub: String(row.username),
+            userId: Number(row.id),
+            role: String(row.role || "salesperson"),
+            companyId: row.company_id ? Number(row.company_id) : undefined,
+            allowedCamps: liveAllowedCamps,
+            allowedRouterIds: liveAllowedRouterIds,
+          };
         }
-
-        authUser = {
-          sub: String(row.username),
-          userId: Number(row.id),
-          displayName: String(row.display_name || row.username),
-          role: String(row.role || "salesperson"),
-          companyId: row.company_id ? Number(row.company_id) : null,
-          companyName: row.company_name ? String(row.company_name) : null,
-          allowedCamps: liveAllowedCamps,
-          allowedRouterIds: liveAllowedRouterIds,
-        };
+      } catch (err) {
+        console.warn("Could not query dynamic salesperson permissions:", err);
       }
     }
 
-    // STRICT SECURITY: If no authenticated user, no valid company, and no allowed camps could be resolved,
-    // do NOT leak all multi-tenant routers to unauthenticated clients.
-    if (!authUser && !companyFilter) {
-      return NextResponse.json(
-        { error: "Authentication required to access routers list", routers: [], configured: false },
-        { status: 401 }
-      );
+    // Join with companies table to resolve dynamic company_name and enforce ID relationships (Active routers only)
+    const conditions = ["(r.is_active = 1 OR r.is_active IS NULL)"];
+    if (verifiedOnly) {
+      conditions.push("r.verified_status = 1");
     }
 
-    // Strictly enforce company if JWT token or resolved user represents a company user
-    if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
-      companyFilter = authUser.companyName;
-    }
-    
-    // Fetch camps for company if filtered
-    let companyCampNames: string[] = [];
-    if (companyFilter && companyFilter.trim()) {
-      const campRes = await database.execute({
-        sql: "SELECT name FROM camps WHERE LOWER(company_name) = LOWER(?)",
-        args: [companyFilter.trim()],
-      });
-      companyCampNames = campRes.rows.map((r) => String(r.name).toLowerCase());
-    }
-
-    const query = verifiedOnly 
-      ? "SELECT * FROM routers WHERE verified_status = 1" 
-      : "SELECT * FROM routers";
+    const query = `
+      SELECT r.*, c.name as company_name, c.id as resolved_company_id
+      FROM routers r
+      LEFT JOIN companies c ON r.company_id = c.id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY r.sessionName ASC
+    `;
     const result = await database.execute(query);
     
     let dbRouters = result.rows.map((row) => ({
@@ -111,25 +88,29 @@ export async function GET(request: Request) {
       sessionTimeout: String(row.sessionTimeout ?? "30 minutes"),
       liveReport: Boolean(row.liveReport ?? true),
       phone: String(row.phone ?? ""),
-      camp: row.camp ? String(row.camp) : undefined,
+      camp: row.company_name ? String(row.company_name) : (row.camp ? String(row.camp) : undefined),
+      company: row.company_name ? String(row.company_name) : undefined,
+      companyId: row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : undefined),
       serialNumber: row.serialNumber ? String(row.serialNumber) : undefined,
       status: Number(row.verified_status) === 1 ? "offline" : "unknown",
       verified: Number(row.verified_status) === 1,
     }));
 
+    // Company filter
     if (companyFilter && companyFilter.trim()) {
+      const cLower = companyFilter.trim().toLowerCase();
       dbRouters = dbRouters.filter((r) => {
-        const campLower = (r.camp || r.sessionName || "").toLowerCase();
-        return companyCampNames.includes(campLower);
+        return (r.company && r.company.toLowerCase() === cLower) ||
+               (r.camp && r.camp.toLowerCase() === cLower);
       });
     }
 
-    // Strictly filter routers by salesperson permissions (checks allowedRouterIds or allowedCamps)
+    // Salesperson scoping: filter by allowed_router_ids or company_id / allowed_camps
     if (authUser && authUser.role !== "superadmin") {
       const hasSpecificRouterIds = authUser.allowedRouterIds && authUser.allowedRouterIds.length > 0;
       const hasSpecificCamps = authUser.allowedCamps && authUser.allowedCamps.length > 0;
 
-      if (hasSpecificRouterIds || hasSpecificCamps) {
+      if (hasSpecificRouterIds || hasSpecificCamps || authUser.companyId) {
         const allowedIds = (authUser.allowedRouterIds || []).map((id) => id.toLowerCase());
         const allowedCampsLower = (authUser.allowedCamps || []).map((c) => c.toLowerCase());
 
@@ -137,53 +118,23 @@ export async function GET(request: Request) {
           const idMatch = allowedIds.includes(r.id.toLowerCase());
           const campMatch = (r.camp && allowedCampsLower.includes(r.camp.toLowerCase())) ||
                             (r.sessionName && allowedCampsLower.includes(r.sessionName.toLowerCase()));
-          return idMatch || campMatch;
+          const companyMatch = authUser?.companyId && r.companyId === authUser.companyId;
+
+          if (hasSpecificRouterIds && !hasSpecificCamps) {
+            return idMatch;
+          }
+          return idMatch || campMatch || companyMatch;
         });
       }
     }
 
-    // Merge with env-configured routers if any (only for superadmin when no company/camp restrictions exist)
-    let envRouters: any[] = [];
-    const hasCompanyRestriction = Boolean(companyFilter && companyFilter.trim());
-    const hasCampRestriction = Boolean(authUser && authUser.role !== "superadmin" && ((authUser.allowedCamps && authUser.allowedCamps.length > 0) || (authUser.allowedRouterIds && authUser.allowedRouterIds.length > 0)));
-
-    if (isMikrotikConfigured() && !hasCompanyRestriction && !hasCampRestriction) {
-      const configs = getConfiguredRouters();
-      envRouters = configs.map((config) => ({
-        id: config.id,
-        sessionName: config.sessionName,
-        host: config.host,
-        ipAddress: config.host,
-        port: config.port,
-        username: config.username,
-        password: config.password,
-        useTls: config.useTls,
-        hotspotName: config.hotspotName ?? config.sessionName,
-        dnsName: config.dnsName ?? "",
-        currency: config.currency ?? "AED",
-        sessionTimeout: config.sessionTimeout ?? "30 minutes",
-        liveReport: config.liveReport ?? true,
-        phone: config.phone ?? "",
-        camp: config.camp,
-        serialNumber: undefined,
-        status: "unknown",
-        verified: true,
-      }));
-    }
-
-    let mergedRouters = [...dbRouters];
-    for (const envR of envRouters) {
-      if (!mergedRouters.some((r) => r.id === envR.id)) {
-        mergedRouters.push(envR);
-      }
-    }
-
-    return NextResponse.json({ routers: mergedRouters, configured: true });
+    return NextResponse.json({ routers: dbRouters, configured: true });
   } catch (error) {
     return mikrotikErrorResponse(error, "Failed to load routers");
   }
 }
 
+// POST /api/mikrotik/routers
 export async function POST(request: Request) {
   try {
     const authUser = extractAuthToken(request);
@@ -198,18 +149,12 @@ export async function POST(request: Request) {
       hotspotName,
       dnsName,
       currency,
-      camp,
-      company,
+      companyId,
       companyName,
       sessionTimeout,
       phone,
       liveReport,
     } = body;
-
-    let assignedCompany = (companyName || company || "").trim() || null;
-    if (authUser && authUser.role !== "superadmin" && authUser.companyName) {
-      assignedCompany = authUser.companyName;
-    }
 
     if (!sessionName || !host || !port || !username) {
       return NextResponse.json(
@@ -220,70 +165,33 @@ export async function POST(request: Request) {
 
     const database = await getDB();
 
-    // 1. Check if hotspot name (sessionName) already exists
-    const checkRouterDup = await database.execute({
-      sql: "SELECT id FROM routers WHERE sessionName = ?",
-      args: [sessionName],
-    });
-    const checkCampDup = await database.execute({
-      sql: "SELECT id FROM camps WHERE hotspot_name = ?",
-      args: [sessionName],
-    });
-
-    if (checkRouterDup.rows.length > 0 || checkCampDup.rows.length > 0) {
-      return NextResponse.json(
-        { error: "A router or camp with this hotspot name already exists. Please choose a unique name." },
-        { status: 400 }
-      );
+    // 1. Resolve Company ID (Superadmin or Company Admin scope)
+    let resolvedCompanyId: number | null = companyId ? Number(companyId) : null;
+    if (!resolvedCompanyId && authUser?.companyId) {
+      resolvedCompanyId = Number(authUser.companyId);
     }
-
-    // 2. Check if camp display name already exists
-    const campName = camp ?? sessionName;
-    if (campName) {
-      const checkCampName = await database.execute({
-        sql: "SELECT id FROM camps WHERE name = ?",
-        args: [campName],
-      });
-      const checkRouterCamp = await database.execute({
-        sql: "SELECT id FROM routers WHERE camp = ?",
-        args: [campName],
-      });
-
-      if (checkCampName.rows.length > 0 || checkRouterCamp.rows.length > 0) {
-        return NextResponse.json(
-          { error: "A camp with this name already exists. Please choose a unique name." },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Resolve company_id if company name or ID provided
-    let resolvedCompanyId: number | null = body.companyId ? Number(body.companyId) : null;
-    if (!resolvedCompanyId && assignedCompany) {
+    if (!resolvedCompanyId && companyName) {
       const compRes = await database.execute({
         sql: "SELECT id FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
-        args: [assignedCompany],
+        args: [String(companyName).trim()],
       });
       if (compRes.rows.length > 0) {
         resolvedCompanyId = Number(compRes.rows[0].id);
       }
     }
 
-    const id = `router-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-    // Try to test connection immediately to check if it's live or pending/draft
-    const configToTest = {
-      id,
+    // 2. Test Connection and Extract Permanent Hardware Identity
+    const tempConfig = {
+      id: "test",
       sessionName,
-      host,
-      port: Number(port),
-      username,
+      host: String(host).trim(),
+      port: Number(port) || 8728,
+      username: String(username).trim(),
       password: password ?? "",
       useTls: Boolean(useTls),
       hotspotName: hotspotName ?? sessionName,
       dnsName: dnsName ?? "",
       currency: currency ?? "AED",
-      camp: camp ?? "",
       sessionTimeout: sessionTimeout ?? "30 minutes",
       phone: phone ?? "",
       liveReport: liveReport !== false,
@@ -293,159 +201,153 @@ export async function POST(request: Request) {
     let serialNumber = "";
 
     try {
-      const connTest = await testRouterConnection(configToTest);
+      const connTest = await testRouterConnection(tempConfig);
       if (connTest.success) {
         isVerified = true;
-        serialNumber = connTest.serialNumber ?? "";
+        serialNumber = (connTest.serialNumber || "").trim();
+      } else {
+        return NextResponse.json(
+          { error: `Router connection failed: ${connTest.error || 'Please verify IP, port, and credentials.'}` },
+          { status: 400 }
+        );
       }
-    } catch {
-      // Unreachable or offline — save as unverified/pending draft
-      isVerified = false;
+    } catch (testErr) {
+      return NextResponse.json(
+        { error: `Router connection failed: ${testErr instanceof Error ? testErr.message : 'Cannot reach router'}` },
+        { status: 400 }
+      );
     }
-    
-    await database.execute({
-      sql: `
-        INSERT INTO routers (
-          id, sessionName, host, port, username, password, useTls, 
-          hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber, verified_status, company_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      args: [
-        id,
-        sessionName,
-        host,
-        Number(port),
-        username,
-        password ?? "",
-        useTls ? 1 : 0,
-        hotspotName ?? sessionName,
-        dnsName ?? "",
-        currency ?? "AED",
-        camp ?? "",
-        sessionTimeout ?? "30 minutes",
-        phone ?? "",
-        liveReport !== false ? 1 : 0,
-        serialNumber,
-        isVerified ? 1 : 0,
-        resolvedCompanyId,
-      ],
-    });
 
-    // 2. Automatically link/insert the new camp configuration ONLY if connection is verified
-    if (isVerified) {
-      try {
-        await database.execute({
-          sql: "INSERT OR IGNORE INTO camps (name, hotspot_name, company_name, company_id) VALUES (?, ?, ?, ?)",
-          args: [campName, sessionName, assignedCompany, resolvedCompanyId],
-        });
-      } catch (e) {
-        console.warn("Could not insert camp metadata:", e);
-      }
+    // 3. HARDWARE DEDUPLICATION & DETERMINISTIC ROUTER ID:
+    // Tie the primary router ID directly to its hardware serial number or cloud prefix
+    let targetId = serialNumber
+      ? `router-${serialNumber.replace(/[^a-zA-Z0-9_-]/g, "")}`
+      : (dnsName && dnsName.includes(".") ? `router-${dnsName.split(".")[0].replace(/[^a-zA-Z0-9_-]/g, "")}` : `router-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    let isReactivating = false;
 
-      // 3. Automatically seed default validity profile pricing for this verified camp (keyed with router_id and company_id)
-      try {
-        await database.batch([
-          {
-            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            args: [campName, "15-Days", assignedCompany || "Apricom", resolvedCompanyId, id, 16, 1],
-          },
-          {
-            sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            args: [campName, "30-Days", assignedCompany || "Apricom", resolvedCompanyId, id, 32, 1],
-          },
-        ], "write");
-      } catch (e) {
-        console.warn("Could not insert camp pricing data:", e);
+    if (serialNumber) {
+      const dupRes = await database.execute({
+        sql: `
+          SELECT r.id, r.sessionName, r.host, r.is_active, c.name as company_name
+          FROM routers r
+          LEFT JOIN companies c ON r.company_id = c.id
+          WHERE r.serialNumber = ? OR r.id = ?
+        `,
+        args: [serialNumber, targetId],
+      });
+
+      if (dupRes.rows.length > 0) {
+        const existing = dupRes.rows[0];
+        const isActive = existing.is_active === 1 || existing.is_active === null;
+
+        if (isActive) {
+          return NextResponse.json(
+            {
+              error: `This physical MikroTik router (Serial #${serialNumber}) is already active as "${existing.sessionName}" under Company "${existing.company_name || 'Unassigned'}".`,
+            },
+            { status: 409 }
+          );
+        } else {
+          // Reactivate the previously archived router so all historical sales stay linked!
+          targetId = String(existing.id);
+          isReactivating = true;
+        }
       }
+    }
+
+    if (isReactivating) {
+      await database.execute({
+        sql: `
+          UPDATE routers SET
+            sessionName = ?, host = ?, port = ?, username = ?, password = ?, useTls = ?,
+            hotspotName = ?, dnsName = ?, currency = ?, camp = ?, sessionTimeout = ?, phone = ?, liveReport = ?,
+            verified_status = 1, is_active = 1, deleted_at = NULL, company_id = ?
+          WHERE id = ?
+        `,
+        args: [
+          sessionName.trim(),
+          String(host).trim(),
+          Number(port) || 8728,
+          String(username).trim(),
+          password ?? "",
+          useTls ? 1 : 0,
+          (hotspotName || sessionName).trim(),
+          (dnsName || "").trim(),
+          currency || "AED",
+          sessionName.trim(),
+          sessionTimeout || "30 minutes",
+          (phone || "").trim(),
+          liveReport !== false ? 1 : 0,
+          resolvedCompanyId,
+          targetId,
+        ]
+      });
+    } else {
+      await database.execute({
+        sql: `
+          INSERT INTO routers (
+            id, sessionName, host, port, username, password, useTls, 
+            hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber, verified_status, company_id, is_active
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1)
+        `,
+        args: [
+          targetId,
+          sessionName.trim(),
+          String(host).trim(),
+          Number(port) || 8728,
+          String(username).trim(),
+          password ?? "",
+          useTls ? 1 : 0,
+          (hotspotName || sessionName).trim(),
+          (dnsName || "").trim(),
+          currency || "AED",
+          sessionName.trim(),
+          sessionTimeout || "30 minutes",
+          (phone || "").trim(),
+          liveReport !== false ? 1 : 0,
+          serialNumber,
+          resolvedCompanyId,
+        ],
+      });
+    }
+
+    // 5. Seed default pricing plans for this router linked by router_id and company_id
+    try {
+      await database.batch([
+        {
+          sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          args: [sessionName.trim(), "15-Days", companyName || "Company", resolvedCompanyId, targetId, 16, 1],
+        },
+        {
+          sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, company_name, company_id, router_id, price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          args: [sessionName.trim(), "30-Days", companyName || "Company", resolvedCompanyId, targetId, 32, 1],
+        },
+      ], "write");
+    } catch (e) {
+      console.warn("Could not insert default pricing records:", e);
     }
 
     const created = {
-      id,
-      sessionName,
-      host,
-      ipAddress: host,
-      port: Number(port),
-      username,
+      id: targetId,
+      sessionName: sessionName.trim(),
+      host: String(host).trim(),
+      ipAddress: String(host).trim(),
+      port: Number(port) || 8728,
+      username: String(username).trim(),
       password: password ?? "",
       useTls: Boolean(useTls),
-      hotspotName: hotspotName ?? sessionName,
-      dnsName: dnsName ?? "",
-      currency: currency ?? "AED",
-      camp: campName,
-      sessionTimeout: sessionTimeout ?? "30 minutes",
-      phone: phone ?? "",
-      liveReport: liveReport !== false,
-      status: "unknown",
+      hotspotName: (hotspotName || sessionName).trim(),
+      dnsName: (dnsName || "").trim(),
+      currency: currency || "AED",
+      camp: sessionName.trim(),
+      companyId: resolvedCompanyId,
+      serialNumber,
+      status: "online",
+      verified: true,
     };
 
-    // 4. Automatically fetch and import existing vouchers from the physical router in the background
-    try {
-      const users = await fetchHotspotUsersForRouter(created);
-      if (users && users.length > 0) {
-        const statements = users.map((user) => {
-          const profile = user.profile;
-          const match = profile.match(/(\d+)\D*days?/i);
-          let validityDaysNum = 0;
-          if (match) {
-            validityDaysNum = Number(match[1]);
-          } else {
-            const numeric = Number(profile.replace(/[^0-9]/g, ""));
-            validityDaysNum = Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
-          }
-
-          if (validityDaysNum <= 0) return null;
-
-          const isRedeemed = user.comment && user.comment.includes("Mobile:");
-          const status = isRedeemed ? "redeemed" : user.status === "disabled" ? "disabled" : "available";
-
-          let mobile = "";
-          let salesperson = "";
-          if (isRedeemed) {
-            const commentStr = user.comment || "";
-            const mobileMatch = commentStr.match(/Mobile:\s*([+a-zA-Z0-9\s-]+)/i);
-            if (mobileMatch) {
-              mobile = mobileMatch[1].trim();
-            }
-            const sellerMatch = commentStr.match(/Sold by:\s*([a-zA-Z0-9_-]+)/i);
-            if (sellerMatch) {
-              salesperson = sellerMatch[1].trim();
-            }
-          }
-
-          return {
-            sql: `
-              INSERT OR REPLACE INTO vouchers (
-                voucher_code, validity_days, status, router_id, used_by, used_at, sold_by, price_charged
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `,
-            args: [
-              user.username,
-              validityDaysNum,
-              status,
-              id,
-              status === "redeemed" ? mobile : null,
-              status === "redeemed" ? new Date().toISOString() : null,
-              status === "redeemed" ? salesperson : null,
-              status === "redeemed" ? (validityDaysNum === 30 ? 32 : 16) : null,
-            ],
-          };
-        }).filter((stmt) => stmt !== null);
-
-        if (statements.length > 0) {
-          await database.batch(statements as any, "write");
-          console.log(`Successfully imported ${statements.length} vouchers from the physical router.`);
-        }
-      }
-    } catch (e) {
-      console.warn("Could not import existing vouchers from the physical router:", e);
-    }
-
-    return NextResponse.json({ router: created, success: true }, { status: 201 });
+    return NextResponse.json({ success: true, router: created }, { status: 201 });
   } catch (error) {
     return mikrotikErrorResponse(error, "Failed to create router");
   }
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204 });
 }

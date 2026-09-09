@@ -194,6 +194,15 @@ export async function initializeDB() {
     // Column already exists or table is new
   }
 
+  // Ensure is_active column exists in routers table (1 = active, 0 = archived/soft-deleted)
+  try {
+    await db.execute("ALTER TABLE routers ADD COLUMN is_active INTEGER DEFAULT 1;");
+  } catch (e) {}
+
+  try {
+    await db.execute("ALTER TABLE routers ADD COLUMN deleted_at TEXT;");
+  } catch (e) {}
+
   // --- ID-Centric Relational Schema Migrations ---
   // Ensure company_id exists on sales_persons
   try {
