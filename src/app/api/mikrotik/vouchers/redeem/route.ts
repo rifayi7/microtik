@@ -50,17 +50,30 @@ export async function POST(request: Request) {
       } catch {
         // Fallback
       }
-    } else if (resolvedSalesPersonId && !resolvedSoldBy) {
+    }
+
+    // Check company active status for operator / router
+    if (resolvedSalesPersonId) {
       try {
-        const spRes = await db.execute({
-          sql: "SELECT username, display_name FROM sales_persons WHERE id = ?",
+        const spCompRes = await db.execute({
+          sql: `
+            SELECT sp.company_id, c.status as company_status, c.suspended_reason
+            FROM sales_persons sp
+            LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
+            WHERE sp.id = ?
+            LIMIT 1
+          `,
           args: [resolvedSalesPersonId],
         });
-        if (spRes.rows.length > 0) {
-          resolvedSoldBy = String(spRes.rows[0].display_name || spRes.rows[0].username);
+        if (spCompRes.rows.length > 0) {
+          const compRow = spCompRes.rows[0];
+          if (compRow.company_status !== undefined && Number(compRow.company_status) === 0) {
+            const reason = compRow.suspended_reason ? String(compRow.suspended_reason) : "Sales paused: Company account is temporarily suspended due to outstanding dues.";
+            return NextResponse.json({ error: reason, isSuspended: true }, { status: 403 });
+          }
         }
-      } catch {
-        // Fallback
+      } catch (err) {
+        console.warn("Could not check company status in redeem:", err);
       }
     }
 

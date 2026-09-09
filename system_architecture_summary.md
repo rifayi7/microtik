@@ -74,3 +74,38 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
 3. **Soft-Delete & Automatic Reactivation**:
    - Deleting a router marks `is_active = 0` and `deleted_at = CURRENT_TIMESTAMP`, keeping historical voucher transactions and sales reports 100% intact.
    - Re-adding the same physical router automatically reactivates the record (`is_active = 1`) and preserves historical links.
+
+---
+
+## 📢 Broadcast & Operator Notifications System
+
+1. **Super Admin Broadcast Hub (`/admin` -> Notifications)**:
+   - Super Administrators can compose and broadcast real-time operational messages, maintenance alerts, or price updates.
+   - **Targeting Modes**:
+     - `ALL`: Dispatches announcement globally to all operators across all companies.
+     - `COMPANY`: Scopes the notification strictly to field operators under the selected company ID (`company_id`).
+   - **Urgency Types**: `info` ℹ️, `warning` ⚠️, `urgent` 🚨, `maintenance` 🔧.
+2. **API Contracts**:
+   - `GET /api/mikrotik/admin/notifications`: Super Admin management and read statistics.
+   - `POST /api/mikrotik/admin/notifications`: Broadcast new message.
+   - `DELETE /api/mikrotik/admin/notifications?id={id}`: Revoke announcement.
+   - `GET /api/mikrotik/notifications`: Mobile operator fetch scoped by `company_id` and `salesPersonId`.
+   - `POST /api/mikrotik/notifications/read`: Mark notification as read per salesperson.
+
+---
+
+## ⏸️ Company Suspension & Dues Enforcement System
+
+1. **Company Status Management (`/admin` -> Company Accounts)**:
+   - Super Administrators can toggle any client company account between **`Active` (1)** and **`Paused (Dues)` (0)**.
+   - Updates `companies.status` and `companies.suspended_reason` without altering or deleting any historical vouchers, routers, or transaction logs.
+2. **Multi-Platform Enforcement**:
+   - **Sales Operator Mobile App**:
+     - `POST /api/mikrotik/auth/login` checks company status upon operator authentication. If paused, access is denied with HTTP 403 (`isSuspended: true`).
+     - `POST /api/mikrotik/vouchers/redeem` checks company status upon voucher sale. If paused, recharges are blocked with HTTP 403 (`isSuspended: true`).
+   - **Company Admin Portal**:
+     - `POST /api/mikrotik/auth/admin-login` blocks company admin dashboard access with suspension notice while paused.
+3. **Instant Reactivation**:
+   - Toggling back to **Activate** restores all company services, sales POS, and admin access instantly in real-time.
+
+

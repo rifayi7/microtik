@@ -55,7 +55,9 @@ export async function POST(request: Request) {
       sql: `
         SELECT 
           ca.id, ca.username, ca.password, ca.company_name, ca.company_id, ca.role,
-          c.id as resolved_company_id, c.name as resolved_company_name
+          c.id as resolved_company_id, c.name as resolved_company_name,
+          COALESCE(c.status, 1) as company_status,
+          c.suspended_reason
         FROM company_admins ca
         LEFT JOIN companies c ON (ca.company_id IS NOT NULL AND c.id = ca.company_id) OR (ca.company_name IS NOT NULL AND LOWER(c.name) = LOWER(ca.company_name))
         WHERE ca.username = ?
@@ -79,6 +81,15 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: "Invalid username or password" },
         { status: 401 }
+      );
+    }
+
+    // Check if company account is paused/suspended due to dues
+    if (row.company_status !== undefined && Number(row.company_status) === 0) {
+      const reason = row.suspended_reason ? String(row.suspended_reason) : "Account temporarily suspended due to outstanding subscription dues. Please contact management.";
+      return NextResponse.json(
+        { success: false, error: reason, isSuspended: true },
+        { status: 403 }
       );
     }
 

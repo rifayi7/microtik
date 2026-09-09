@@ -26,7 +26,9 @@ export async function GET(request: Request) {
           sp.id, sp.username, sp.display_name, sp.role, 
           sp.company_id, sp.allowed_camps,
           c.id as resolved_company_id, c.name as resolved_company_name,
-          COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
+          COALESCE(c.timezone, 'Asia/Dubai') as company_timezone,
+          COALESCE(c.status, 1) as company_status,
+          c.suspended_reason
         FROM sales_persons sp
         LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id)
         WHERE (sp.id = ? OR LOWER(sp.username) = LOWER(?))
@@ -36,10 +38,16 @@ export async function GET(request: Request) {
     });
 
     if (result.rows.length === 0) {
-      return NextResponse.json({ success: false, error: "User not found" }, { status: 404 });
+      return NextResponse.json({ success: false, error: "User not found or account deleted", isDeleted: true }, { status: 401 });
     }
 
     const row = result.rows[0];
+
+    // Check if company is paused / suspended
+    if (row.company_status !== undefined && Number(row.company_status) === 0) {
+      const reason = row.suspended_reason ? String(row.suspended_reason) : "Account temporarily suspended due to outstanding dues.";
+      return NextResponse.json({ success: false, error: reason, isSuspended: true }, { status: 403 });
+    }
 
     let allowedCamps: string[] = [];
     if (row.allowed_camps) {

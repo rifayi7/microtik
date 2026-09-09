@@ -24,6 +24,14 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   XCircle,
+  Bell,
+  Send,
+  AlertTriangle,
+  Info,
+  AlertOctagon,
+  Wrench,
+  Pause,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
@@ -86,12 +94,15 @@ interface CompanyAdmin {
   role: string;
   timezone?: string;
   createdAt: string;
+  companyStatus?: number;
 }
 
 interface CompanyItem {
   id: number;
   name: string;
   timezone?: string;
+  status?: number;
+  suspendedReason?: string | null;
 }
 
 interface CampWithCompany {
@@ -111,6 +122,20 @@ interface ReportUser {
   allowedCampIds: string[];
   status: number;
   createdAt: string;
+}
+
+interface BroadcastNotification {
+  id: number;
+  title: string;
+  message: string;
+  type: string;
+  targetType: string;
+  companyId: number | null;
+  companyName: string | null;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string | null;
+  readCount: number;
 }
 
 const TIMEZONE_OPTIONS = [
@@ -206,10 +231,28 @@ export function AdminClient() {
   const [savingReportUser, setSavingReportUser] = useState(false);
   const [allCompaniesList, setAllCompaniesList] = useState<CompanyItem[]>([]);
 
+  // Broadcast Notifications State (Super Admin Only)
+  const [notifications, setNotifications] = useState<BroadcastNotification[]>([]);
+  const [notifModalOpen, setNotifModalOpen] = useState(false);
+  const [notifTitle, setNotifTitle] = useState("");
+  const [notifMessage, setNotifMessage] = useState("");
+  const [notifType, setNotifType] = useState("info");
+  const [notifTargetType, setNotifTargetType] = useState("ALL");
+  const [notifCompanyId, setNotifCompanyId] = useState("");
+  const [savingNotif, setSavingNotif] = useState(false);
+  const [notifSearch, setNotifSearch] = useState("");
+
+  // Suspend / Pause Company Modal State
+  const [pauseModalOpen, setPauseModalOpen] = useState(false);
+  const [selectedCompanyToPause, setSelectedCompanyToPause] = useState<CompanyAdmin | null>(null);
+  const [customSuspensionMessage, setCustomSuspensionMessage] = useState("");
+  const [broadcastSuspensionNotif, setBroadcastSuspensionNotif] = useState(true);
+  const [savingPauseStatus, setSavingPauseStatus] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, pricingRes, companiesRes, reportUsersRes] = await Promise.all([
+      const [usersRes, pricingRes, companiesRes, reportUsersRes, notifsRes] = await Promise.all([
         fetchMikrotikApi<{ users: AdminUser[] }>("/api/mikrotik/admin/users"),
         fetchMikrotikApi<{
           campPricing: CampPricing[];
@@ -224,6 +267,7 @@ export function AdminClient() {
           companyAdmins: CompanyAdmin[];
         }>("/api/mikrotik/admin/companies").catch(() => ({ companies: [], companyAdmins: [] })),
         fetchMikrotikApi<{ reportUsers: ReportUser[] }>("/api/mikrotik/admin/report-users").catch(() => ({ reportUsers: [] })),
+        fetchMikrotikApi<{ notifications: BroadcastNotification[] }>("/api/mikrotik/admin/notifications").catch(() => ({ notifications: [] })),
       ]);
 
       if (usersRes.users) setUsers(usersRes.users);
@@ -269,6 +313,9 @@ export function AdminClient() {
       if (pricingRes.validityProfiles) setValidityProfiles(pricingRes.validityProfiles);
       if (reportUsersRes.reportUsers) {
         setReportUsers(reportUsersRes.reportUsers);
+      }
+      if (notifsRes.notifications) {
+        setNotifications(notifsRes.notifications);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load admin data");
@@ -474,6 +521,122 @@ export function AdminClient() {
       toast.error(err instanceof Error ? err.message : "Failed to save company admin");
     } finally {
       setSavingCompanyAdmin(false);
+    }
+  };
+
+  const handleToggleCompanyStatus = async (admin: CompanyAdmin) => {
+    if (!admin.companyId) {
+      toast.error("Company ID not found for this account");
+      return;
+    }
+
+    const currentStatus = admin.companyStatus !== undefined ? admin.companyStatus : 1;
+
+    // If currently active -> Open Pause Modal with custom suspension message input
+    if (currentStatus === 1) {
+      setSelectedCompanyToPause(admin);
+      setCustomSuspensionMessage(
+        `Account for ${admin.companyName} is temporarily suspended due to outstanding subscription dues. All POS & recharge services are paused until resolved.`
+      );
+      setBroadcastSuspensionNotif(true);
+      setPauseModalOpen(true);
+      return;
+    }
+
+    // If currently paused -> Activate immediately
+    if (
+      !confirm(
+        `Are you sure you want to ACTIVATE company "${admin.companyName}"?\n\nThis will immediately restore access for all field operators and re-enable voucher sales.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetchMikrotikApi<{ success: boolean; message: string; status: number }>(
+        "/api/mikrotik/admin/companies",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            action: "toggle_company_status",
+            id: admin.companyId,
+            status: 1,
+            suspendedReason: null,
+          }),
+        }
+      );
+
+      // Broadcast optional activation notification
+      try {
+        await fetchMikrotikApi("/api/mikrotik/admin/notifications", {
+          method: "POST",
+          body: JSON.stringify({
+            title: `Services Restored - ${admin.companyName}`,
+            message: `Services for ${admin.companyName} have been reactivated. You can now resume voucher recharges and normal operations.`,
+            type: "info",
+            targetType: "COMPANY",
+            companyId: admin.companyId,
+            companyName: admin.companyName,
+          }),
+        });
+      } catch {}
+
+      toast.success(res.message || "Company activated successfully!");
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to activate company");
+    }
+  };
+
+  const handleConfirmPauseCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCompanyToPause || !selectedCompanyToPause.companyId) return;
+
+    if (!customSuspensionMessage.trim()) {
+      toast.error("Please provide a suspension reason message");
+      return;
+    }
+
+    setSavingPauseStatus(true);
+    try {
+      const res = await fetchMikrotikApi<{ success: boolean; message: string; status: number }>(
+        "/api/mikrotik/admin/companies",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            action: "toggle_company_status",
+            id: selectedCompanyToPause.companyId,
+            status: 0,
+            suspendedReason: customSuspensionMessage.trim(),
+          }),
+        }
+      );
+
+      // Also broadcast urgent notification to operators if selected
+      if (broadcastSuspensionNotif) {
+        try {
+          await fetchMikrotikApi("/api/mikrotik/admin/notifications", {
+            method: "POST",
+            body: JSON.stringify({
+              title: `⚠️ Service Suspension Notice - ${selectedCompanyToPause.companyName}`,
+              message: customSuspensionMessage.trim(),
+              type: "urgent",
+              targetType: "COMPANY",
+              companyId: selectedCompanyToPause.companyId,
+              companyName: selectedCompanyToPause.companyName,
+            }),
+          });
+        } catch {}
+      }
+
+      toast.success(res.message || `Company "${selectedCompanyToPause.companyName}" paused.`);
+      setPauseModalOpen(false);
+      setSelectedCompanyToPause(null);
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to pause company");
+    } finally {
+      setSavingPauseStatus(false);
     }
   };
 
@@ -744,6 +907,89 @@ export function AdminClient() {
     return matchesSearch && matchesCompany;
   });
 
+  // ── Broadcast Notification Handlers ──
+  const handleOpenAddNotification = () => {
+    setNotifTitle("");
+    setNotifMessage("");
+    setNotifType("info");
+    setNotifTargetType("ALL");
+    setNotifCompanyId(allCompaniesList.length > 0 ? String(allCompaniesList[0].id) : "");
+    setNotifModalOpen(true);
+  };
+
+  const handleSaveNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifTitle.trim()) {
+      toast.error("Please enter a notification title");
+      return;
+    }
+    if (!notifMessage.trim()) {
+      toast.error("Please enter the notification message");
+      return;
+    }
+    if (notifTargetType === "COMPANY" && !notifCompanyId) {
+      toast.error("Please select a target company");
+      return;
+    }
+
+    setSavingNotif(true);
+    try {
+      const selectedCompany = allCompaniesList.find((c) => String(c.id) === notifCompanyId);
+      const res = await fetchMikrotikApi<{ success: boolean; message: string; notification: BroadcastNotification }>(
+        "/api/mikrotik/admin/notifications",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            title: notifTitle.trim(),
+            message: notifMessage.trim(),
+            type: notifType,
+            targetType: notifTargetType,
+            companyId: notifTargetType === "COMPANY" ? Number(notifCompanyId) : null,
+            companyName: notifTargetType === "COMPANY" ? selectedCompany?.name : null,
+          }),
+        }
+      );
+
+      toast.success(res.message || "Notification broadcasted successfully!");
+      setNotifModalOpen(false);
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to broadcast notification");
+    } finally {
+      setSavingNotif(false);
+    }
+  };
+
+  const handleDeleteNotification = async (notif: BroadcastNotification) => {
+    if (!confirm(`Are you sure you want to delete broadcast "${notif.title}"?`)) {
+      return;
+    }
+
+    try {
+      await fetchMikrotikApi(`/api/mikrotik/admin/notifications?id=${notif.id}`, {
+        method: "DELETE",
+      });
+      toast.success(`Notification "${notif.title}" deleted`);
+      setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete notification");
+    }
+  };
+
+  const filteredNotifications = notifications.filter((n) => {
+    const matchesSearch =
+      n.title.toLowerCase().includes(notifSearch.toLowerCase()) ||
+      n.message.toLowerCase().includes(notifSearch.toLowerCase()) ||
+      (n.companyName && n.companyName.toLowerCase().includes(notifSearch.toLowerCase()));
+
+    const matchesCompany =
+      selectedCompanyFilter === "ALL" ||
+      (n.targetType === "COMPANY" && n.companyName && n.companyName.toLowerCase() === selectedCompanyFilter.toLowerCase()) ||
+      n.targetType === "ALL";
+
+    return matchesSearch && matchesCompany;
+  });
+
   return (
     <div className="space-y-6">
       {/* Dynamic suggestions datalist for company input */}
@@ -780,6 +1026,10 @@ export function AdminClient() {
           <TabsTrigger value="reports_users" className="gap-2">
             <BarChart3 className="size-4" />
             Report Viewers ({reportUsers.length})
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="gap-2">
+            <Bell className="size-4" />
+            Notifications ({notifications.length})
           </TabsTrigger>
         </TabsList>
 
@@ -984,10 +1234,10 @@ export function AdminClient() {
                   <TableHead>Company Name</TableHead>
                   <TableHead>Admin Username</TableHead>
                   <TableHead>Timezone</TableHead>
-                  <TableHead>Account Role</TableHead>
+                  <TableHead>Status / Dues</TableHead>
                   <TableHead>Password</TableHead>
                   <TableHead>Created Date</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -998,70 +1248,105 @@ export function AdminClient() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredCompanyAdmins.map((admin, idx) => (
-                    <TableRow key={admin.id}>
-                      <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">
-                            <Briefcase className="size-3.5" />
-                            {admin.companyName}
-                          </span>
-                          {admin.companyId ? (
-                            <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                              ID: {admin.companyId}
+                  filteredCompanyAdmins.map((admin, idx) => {
+                    const isActive = admin.companyStatus === undefined || admin.companyStatus === 1;
+
+                    return (
+                      <TableRow key={admin.id} className={!isActive ? "bg-red-500/5 dark:bg-red-950/20" : undefined}>
+                        <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">
+                              <Briefcase className="size-3.5" />
+                              {admin.companyName}
                             </span>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
-                        {admin.username}
-                      </TableCell>
-                      <TableCell>
-                        {(() => {
-                          const opt = TIMEZONE_OPTIONS.find((t) => t.value === admin.timezone) || TIMEZONE_OPTIONS[0];
-                          return (
-                            <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
-                              <span>{opt.flag}</span>
-                              <span>{opt.label} ({opt.gmt})</span>
+                            {admin.companyId ? (
+                              <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                ID: {admin.companyId}
+                              </span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
+                          {admin.username}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const opt = TIMEZONE_OPTIONS.find((t) => t.value === admin.timezone) || TIMEZONE_OPTIONS[0];
+                            return (
+                              <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
+                                <span>{opt.flag}</span>
+                                <span>{opt.label} ({opt.gmt})</span>
+                              </span>
+                            );
+                          })()}
+                        </TableCell>
+                        <TableCell>
+                          {isActive ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                              <CheckCircle2 className="size-3" />
+                              Active
                             </span>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                          <ShieldCheck className="size-3" />
-                          Company Admin
-                        </span>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        ••••••••
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {admin.createdAt ? admin.createdAt.slice(0, 10) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                            onClick={() => handleOpenEditCompanyAdmin(admin)}
-                          >
-                            <Key className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => void handleDeleteCompanyAdmin(admin)}
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2.5 py-0.5 rounded-full border border-red-200 dark:border-red-800">
+                              <Pause className="size-3" />
+                              Paused (Dues)
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          ••••••••
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {admin.createdAt ? admin.createdAt.slice(0, 10) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {/* Toggle Pause / Resume Button */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={`h-7 px-2 text-xs font-semibold gap-1 ${
+                                isActive
+                                  ? "border-amber-500/50 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                                  : "border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                              }`}
+                              title={isActive ? "Pause company operations (overdue dues)" : "Activate company operations"}
+                              onClick={() => void handleToggleCompanyStatus(admin)}
+                            >
+                              {isActive ? (
+                                <>
+                                  <Pause className="size-3 text-amber-600" />
+                                  Pause
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="size-3 text-emerald-600" />
+                                  Activate
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                              onClick={() => handleOpenEditCompanyAdmin(admin)}
+                            >
+                              <Key className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => void handleDeleteCompanyAdmin(admin)}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -1362,6 +1647,119 @@ export function AdminClient() {
                       </TableCell>
                     </TableRow>
                   ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* ── TAB 5: BROADCAST NOTIFICATIONS ── */}
+        <TabsContent value="notifications" className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search notifications..."
+                value={notifSearch}
+                onChange={(e) => setNotifSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Button
+              onClick={handleOpenAddNotification}
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2"
+            >
+              <Send className="size-4" />
+              Broadcast Notification
+            </Button>
+          </div>
+
+          <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="w-[140px]">Type / Priority</TableHead>
+                  <TableHead className="min-w-[180px]">Title & Message</TableHead>
+                  <TableHead className="w-[180px]">Target Audience</TableHead>
+                  <TableHead className="w-[140px]">Created At</TableHead>
+                  <TableHead className="w-[100px] text-center">Reads</TableHead>
+                  <TableHead className="w-[70px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredNotifications.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      No broadcast notifications sent yet. Click &quot;Broadcast Notification&quot; to send an announcement to field operators.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredNotifications.map((notif) => {
+                    const badgeClass =
+                      notif.type === "urgent"
+                        ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400"
+                        : notif.type === "warning"
+                        ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400"
+                        : notif.type === "maintenance"
+                        ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
+                        : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400";
+
+                    return (
+                      <TableRow key={notif.id} className="hover:bg-muted/30">
+                        <TableCell>
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border uppercase tracking-wider ${badgeClass}`}
+                          >
+                            {notif.type === "urgent" && <AlertOctagon className="size-3" />}
+                            {notif.type === "warning" && <AlertTriangle className="size-3" />}
+                            {notif.type === "maintenance" && <Wrench className="size-3" />}
+                            {notif.type === "info" && <Info className="size-3" />}
+                            {notif.type}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-semibold text-sm text-foreground">{notif.title}</div>
+                          <div className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-2 mt-0.5">
+                            {notif.message}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {notif.targetType === "ALL" ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 px-2.5 py-1 rounded-md">
+                              <Globe className="size-3" />
+                              All Companies (Global)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 px-2.5 py-1 rounded-md">
+                              <Building2 className="size-3" />
+                              {notif.companyName || `Company #${notif.companyId}`}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(notif.createdAt).toLocaleDateString()}
+                          <div className="text-[10px] text-muted-foreground/70">
+                            {new Date(notif.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <span className="text-xs font-semibold bg-muted px-2 py-0.5 rounded-full text-foreground">
+                            {notif.readCount}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => void handleDeleteNotification(notif)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -1891,6 +2289,209 @@ export function AdminClient() {
               </Button>
               <Button type="submit" disabled={savingReportUser} className="bg-indigo-600 hover:bg-indigo-700 text-white">
                 {savingReportUser ? "Saving..." : editingReportUser ? "Update Viewer" : "Create Report Viewer"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── MODAL: BROADCAST NOTIFICATION ── */}
+      <Dialog open={notifModalOpen} onOpenChange={setNotifModalOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <form onSubmit={handleSaveNotification}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Bell className="size-5 text-blue-600" />
+                Broadcast Notification
+              </DialogTitle>
+              <DialogDescription>
+                Send real-time operational notifications, maintenance warnings, or announcements to field operators.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              {/* Target Audience (All Companies vs Specific Company) */}
+              <div className="space-y-1.5">
+                <Label htmlFor="targetTypeSelect">Target Audience *</Label>
+                <Select
+                  value={notifTargetType}
+                  onValueChange={(v) => v && setNotifTargetType(v)}
+                >
+                  <SelectTrigger id="targetTypeSelect">
+                    <SelectValue placeholder="Select target audience" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                        <Globe className="size-3.5" />
+                        All Companies (All Field Operators)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="COMPANY">
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                        <Building2 className="size-3.5" />
+                        Selected Company Only
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Company Picker (if target is COMPANY) */}
+              {notifTargetType === "COMPANY" && (
+                <div className="space-y-1.5 rounded-lg border p-3 bg-muted/30 animate-in fade-in-50">
+                  <Label htmlFor="notifCompanySelect">Select Target Company *</Label>
+                  <Select
+                    value={notifCompanyId}
+                    onValueChange={(v) => v && setNotifCompanyId(v)}
+                  >
+                    <SelectTrigger id="notifCompanySelect">
+                      <SelectValue placeholder="Select target company" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allCompaniesList.map((comp) => (
+                        <SelectItem key={comp.id} value={String(comp.id)}>
+                          <span className="font-medium">{comp.name}</span>
+                          <span className="text-muted-foreground text-xs ml-2 font-mono">ID: #{comp.id}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Only operators belonging to this company will receive this notification.
+                  </p>
+                </div>
+              )}
+
+              {/* Priority / Type */}
+              <div className="space-y-1.5">
+                <Label htmlFor="notifTypeSelect">Notification Type / Urgency</Label>
+                <Select value={notifType} onValueChange={(v) => v && setNotifType(v)}>
+                  <SelectTrigger id="notifTypeSelect">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="info">
+                      <span className="flex items-center gap-1.5 text-blue-600 font-medium">
+                        <Info className="size-3.5" />
+                        Info (General Announcement)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="warning">
+                      <span className="flex items-center gap-1.5 text-amber-600 font-medium">
+                        <AlertTriangle className="size-3.5" />
+                        Warning (Important Notice)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="urgent">
+                      <span className="flex items-center gap-1.5 text-red-600 font-medium">
+                        <AlertOctagon className="size-3.5" />
+                        Urgent (Critical Alert)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="maintenance">
+                      <span className="flex items-center gap-1.5 text-purple-600 font-medium">
+                        <Wrench className="size-3.5" />
+                        Maintenance (Scheduled Outage)
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Title */}
+              <div className="space-y-1.5">
+                <Label htmlFor="notifTitle">Title / Headline *</Label>
+                <Input
+                  id="notifTitle"
+                  placeholder="e.g. Scheduled Network Maintenance or Price Update Notice"
+                  value={notifTitle}
+                  onChange={(e) => setNotifTitle(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Message */}
+              <div className="space-y-1.5">
+                <Label htmlFor="notifMessage">Message Content *</Label>
+                <textarea
+                  id="notifMessage"
+                  rows={4}
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Write the notification details for the mobile operators..."
+                  value={notifMessage}
+                  onChange={(e) => setNotifMessage(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNotifModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingNotif} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+                <Send className="size-3.5" />
+                {savingNotif ? "Broadcasting..." : "Broadcast Message"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── MODAL: PAUSE / SUSPEND COMPANY ── */}
+      <Dialog open={pauseModalOpen} onOpenChange={setPauseModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleConfirmPauseCompany}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-600">
+                <AlertOctagon className="size-5" />
+                Pause Company Operations
+              </DialogTitle>
+              <DialogDescription>
+                Suspends services for <strong className="text-foreground">{selectedCompanyToPause?.companyName}</strong>. 
+                Sales operators will be blocked from logging in or recharging vouchers.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="customSuspensionMessage">Custom Suspension / Dues Message *</Label>
+                <textarea
+                  id="customSuspensionMessage"
+                  rows={4}
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder="e.g. Account suspended due to pending invoice #1049. Please contact management."
+                  value={customSuspensionMessage}
+                  onChange={(e) => setCustomSuspensionMessage(e.target.value)}
+                  required
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  This custom message will appear when operators attempt to log in or sell vouchers.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2 rounded-lg border p-3 bg-muted/40">
+                <input
+                  type="checkbox"
+                  id="broadcastCheckbox"
+                  checked={broadcastSuspensionNotif}
+                  onChange={(e) => setBroadcastSuspensionNotif(e.target.checked)}
+                  className="size-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                <label htmlFor="broadcastCheckbox" className="text-xs font-medium cursor-pointer leading-none">
+                  Also broadcast as an <strong>Urgent Alert</strong> to field operators of this company
+                </label>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setPauseModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingPauseStatus} className="bg-red-600 hover:bg-red-700 text-white gap-2">
+                <Pause className="size-3.5" />
+                {savingPauseStatus ? "Pausing..." : "Confirm & Pause Company"}
               </Button>
             </DialogFooter>
           </form>

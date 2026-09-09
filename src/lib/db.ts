@@ -133,13 +133,49 @@ export async function initializeDB() {
     );
   `);
 
+  // Create notifications and notification_reads tables
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      type TEXT DEFAULT 'info',
+      target_type TEXT NOT NULL DEFAULT 'ALL',
+      company_id INTEGER REFERENCES companies(id),
+      company_name TEXT,
+      created_by TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT
+    );
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS notification_reads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      notification_id INTEGER REFERENCES notifications(id) ON DELETE CASCADE,
+      sales_person_id INTEGER REFERENCES sales_persons(id),
+      read_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(notification_id, sales_person_id)
+    );
+  `);
+
   // Create companies table
   await db.execute(`
     CREATE TABLE IF NOT EXISTS companies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE
+      name TEXT NOT NULL UNIQUE,
+      timezone TEXT DEFAULT 'Asia/Dubai',
+      status INTEGER DEFAULT 1,
+      suspended_reason TEXT
     );
   `);
+
+  try {
+    await db.execute("ALTER TABLE companies ADD COLUMN status INTEGER DEFAULT 1");
+  } catch {}
+  try {
+    await db.execute("ALTER TABLE companies ADD COLUMN suspended_reason TEXT");
+  } catch {}
 
   // Create camps table
   await db.execute(`

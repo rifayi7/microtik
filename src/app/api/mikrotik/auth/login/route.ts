@@ -25,7 +25,9 @@ export async function POST(request: Request) {
           sp.id, sp.username, sp.password, sp.display_name, sp.role,
           sp.company_id, sp.allowed_camps,
           c.id as resolved_company_id, c.name as resolved_company_name,
-          COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
+          COALESCE(c.timezone, 'Asia/Dubai') as company_timezone,
+          COALESCE(c.status, 1) as company_status,
+          c.suspended_reason
         FROM sales_persons sp
         LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
         WHERE LOWER(sp.username) = LOWER(?) OR LOWER(sp.display_name) = LOWER(?) 
@@ -85,6 +87,15 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: "Invalid operator credentials" },
         { status: 401 }
+      );
+    }
+
+    // Check if company account is paused/suspended due to dues
+    if (row.company_status !== undefined && Number(row.company_status) === 0) {
+      const reason = row.suspended_reason ? String(row.suspended_reason) : "Account temporarily suspended due to outstanding dues. Please contact your administrator.";
+      return NextResponse.json(
+        { success: false, error: reason, isSuspended: true },
+        { status: 403 }
       );
     }
 

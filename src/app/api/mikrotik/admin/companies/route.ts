@@ -15,19 +15,22 @@ export async function GET(request: Request) {
 
     const database = await getDB();
 
-    // 1. Get all companies
-    const compResult = await database.execute("SELECT id, name, COALESCE(timezone, 'Asia/Dubai') as timezone FROM companies ORDER BY name ASC");
+    // 1. Get all companies with status
+    const compResult = await database.execute("SELECT id, name, COALESCE(timezone, 'Asia/Dubai') as timezone, COALESCE(status, 1) as status, suspended_reason FROM companies ORDER BY name ASC");
     const companies = compResult.rows.map((row) => ({
       id: Number(row.id),
       name: String(row.name),
       timezone: String(row.timezone || "Asia/Dubai"),
+      status: Number(row.status ?? 1),
+      suspendedReason: row.suspended_reason ? String(row.suspended_reason) : null,
     }));
 
     // 2. Get all company admins
     const adminResult = await database.execute(`
       SELECT ca.id, ca.username, ca.company_name, ca.company_id, ca.role, ca.created_at, 
              COALESCE(c.id, ca.company_id) as resolved_company_id,
-             COALESCE(c.timezone, 'Asia/Dubai') as timezone
+             COALESCE(c.timezone, 'Asia/Dubai') as timezone,
+             COALESCE(c.status, 1) as company_status
       FROM company_admins ca
       LEFT JOIN companies c ON (ca.company_id IS NOT NULL AND c.id = ca.company_id) OR (ca.company_name IS NOT NULL AND LOWER(c.name) = LOWER(ca.company_name))
       ORDER BY ca.id ASC
@@ -41,6 +44,7 @@ export async function GET(request: Request) {
       role: String(row.role || "company_admin"),
       createdAt: String(row.created_at || ""),
       timezone: String(row.timezone || "Asia/Dubai"),
+      companyStatus: Number(row.company_status ?? 1),
     }));
 
     return NextResponse.json({
@@ -62,9 +66,31 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { action, companyName, username, password, id, timezone } = body;
+    const { action, companyName, username, password, id, timezone, status, suspendedReason } = body;
     const database = await getDB();
     const targetTimezone = timezone && timezone.trim() ? timezone.trim() : "Asia/Dubai";
+
+    // Action: Toggle Company Status (Active <-> Suspended / Paused)
+    if (action === "toggle_company_status") {
+      const { id: compId, status: newStatus, suspendedReason: reason } = body;
+      if (!compId) {
+        return NextResponse.json({ success: false, error: "Company ID is required" }, { status: 400 });
+      }
+
+      const targetStatus = Number(newStatus) === 0 ? 0 : 1;
+      const targetReason = targetStatus === 0 ? (reason || "Account suspended due to outstanding dues. Please contact administrator.") : null;
+
+      await database.execute({
+        sql: "UPDATE companies SET status = ?, suspended_reason = ? WHERE id = ?",
+        args: [targetStatus, targetReason, Number(compId)],
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: targetStatus === 1 ? "Company activated successfully" : "Company paused/suspended due to dues",
+        status: targetStatus,
+      });
+    }
 
     // Action: Create Company
     if (action === "create_company") {
