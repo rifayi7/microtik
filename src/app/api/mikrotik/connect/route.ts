@@ -93,91 +93,37 @@ export async function POST(request: Request) {
     const result = await testRouterConnection(config);
 
     if (result.success && config.id) {
-      // Run DB housekeeping in the background so the HTTP response is instant
+      // Run lightweight status update in the background so the HTTP response is instant
       void (async () => {
         try {
           const database = await getDB();
-          const campName = config!.camp ?? config!.sessionName;
 
-          // 1. Upsert router record (mark verified_status = 1 on successful connect)
+          // 1. Update router online/verified status
           await database.execute({
             sql: `
-              INSERT INTO routers (
-                id, sessionName, host, port, username, password, useTls,
-                hotspotName, dnsName, currency, camp, sessionTimeout, phone, liveReport, serialNumber, verified_status
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-              ON CONFLICT(id) DO UPDATE SET
-                sessionName     = excluded.sessionName,
-                host            = excluded.host,
-                port            = excluded.port,
-                username        = excluded.username,
-                password        = excluded.password,
-                useTls          = excluded.useTls,
-                hotspotName     = excluded.hotspotName,
-                dnsName         = excluded.dnsName,
-                currency        = excluded.currency,
-                camp            = excluded.camp,
-                sessionTimeout  = excluded.sessionTimeout,
-                phone           = excluded.phone,
-                liveReport      = excluded.liveReport,
-                serialNumber    = excluded.serialNumber,
-                verified_status = 1
+              UPDATE routers SET
+                verified_status = 1,
+                is_active       = 1,
+                host            = ?,
+                port            = ?,
+                username        = ?,
+                password        = ?,
+                useTls          = ?,
+                serialNumber    = COALESCE(NULLIF(?, ''), serialNumber)
+              WHERE id = ?
             `,
             args: [
-              config!.id,
-              config!.sessionName,
               config!.host,
               config!.port,
               config!.username,
               config!.password,
               config!.useTls ? 1 : 0,
-              config!.hotspotName ?? config!.sessionName,
-              config!.dnsName ?? "",
-              config!.currency ?? "AED",
-              campName,
-              config!.sessionTimeout ?? "30 minutes",
-              config!.phone ?? "",
-              config!.liveReport !== false ? 1 : 0,
               result.serialNumber ?? "",
+              config!.id,
             ],
           });
-
-          // 2. Ensure camp & pricing rows exist
-          await database.execute({
-            sql: "INSERT OR IGNORE INTO camps (name, hotspot_name) VALUES (?, ?)",
-            args: [campName, config!.sessionName],
-          });
-          await database.batch(
-            [
-              {
-                sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
-                args: [campName, "15-Days", 16, 1],
-              },
-              {
-                sql: "INSERT OR IGNORE INTO camp_validity_pricing (camp_name, validity_name, price, status) VALUES (?, ?, ?, ?)",
-                args: [campName, "30-Days", 32, 1],
-              },
-            ],
-            "write"
-          );
-
-          // 3. ONE-TIME SYNC: pull all RouterOS users into DB only the first time
-          //    this router/camp is added (when no vouchers exist for it yet).
-          //    After that the DB is not touched again unless manually triggered.
-          const check = await database.execute({
-            sql: "SELECT COUNT(*) as count FROM vouchers WHERE router_id = ?",
-            args: [config!.id],
-          });
-          const existingCount = Number(check.rows[0]?.count ?? 0);
-
-          if (existingCount === 0) {
-            const { synced } = await syncRouterUsersToDb(config!);
-            console.log(
-              `[connect] First-time import for "${config!.sessionName}": ${synced} codes saved to DB from RouterOS.`
-            );
-          }
         } catch (dbErr) {
-          console.warn("[connect] Background DB sync failed:", dbErr);
+          console.warn("[connect] Background status update failed:", dbErr);
         }
       })();
     }
