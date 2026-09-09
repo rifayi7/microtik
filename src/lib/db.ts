@@ -137,7 +137,7 @@ export async function initializeDB() {
   await db.execute(`
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
+      title TEXT,
       message TEXT NOT NULL,
       type TEXT DEFAULT 'info',
       target_type TEXT NOT NULL DEFAULT 'ALL',
@@ -148,6 +148,15 @@ export async function initializeDB() {
       expires_at TEXT
     );
   `);
+
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN title TEXT;"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN type TEXT DEFAULT 'info';"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN target_type TEXT DEFAULT 'ALL';"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN company_id INTEGER;"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN company_name TEXT;"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN created_by TEXT;"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN created_at TEXT;"); } catch {}
+  try { await db.execute("ALTER TABLE notifications ADD COLUMN expires_at TEXT;"); } catch {}
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS notification_reads (

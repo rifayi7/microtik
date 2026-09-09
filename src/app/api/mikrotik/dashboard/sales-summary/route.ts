@@ -33,7 +33,9 @@ export async function GET(request: Request) {
         sql: `
           SELECT sp.id, sp.username, sp.display_name, sp.company_id, sp.allowed_camps,
                  c.name as resolved_company_name,
-                 COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
+                 COALESCE(c.timezone, 'Asia/Dubai') as company_timezone,
+                 COALESCE(c.status, 1) as company_status,
+                 c.suspended_reason
           FROM sales_persons sp
           LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
           WHERE sp.id = ? OR sp.username = ? OR sp.display_name = ?
@@ -43,6 +45,13 @@ export async function GET(request: Request) {
       });
       if (spRes.rows.length > 0) {
         const row = spRes.rows[0];
+
+        // Check if company is paused / suspended
+        if (row.company_status !== undefined && Number(row.company_status) === 0) {
+          const reason = row.suspended_reason ? String(row.suspended_reason) : "Account temporarily suspended due to outstanding subscription dues.";
+          return NextResponse.json({ success: false, error: reason, isSuspended: true }, { status: 403 });
+        }
+
         targetUserId = Number(row.id);
         if (!targetUsername) targetUsername = String(row.username);
         if (row.resolved_company_name && !companyParam) companyParam = String(row.resolved_company_name);
