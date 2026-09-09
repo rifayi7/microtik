@@ -144,6 +144,7 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
           username: username.trim(),
           password,
           useTls,
+          companyId: companyId ? Number(companyId) : undefined,
         }),
       });
 

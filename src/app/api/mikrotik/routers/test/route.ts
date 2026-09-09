@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { withMikrotikClient, mikrotikPrint } from "@/lib/mikrotik/client";
 import { getDB } from "@/lib/db";
+import { extractAuthToken } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const authUser = extractAuthToken(request);
     const body = await request.json();
     const host = String(body.host || "").trim();
     const port = Number(body.port ?? 8728);
@@ -78,64 +80,83 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Perform DB Duplicate Check by Hardware Serial Number or Cloud DNS
+    // 2. Perform DB Duplicate Check with Multi-Tenant Privacy Protection
     const database = await getDB();
+    const targetCompanyId = body.companyId ? Number(body.companyId) : (authUser?.companyId ? Number(authUser.companyId) : null);
+    const isSuperAdmin = authUser?.role === "superadmin";
+
     let existingRouter: Record<string, unknown> | null = null;
     let duplicateReason: string | null = null;
 
     if (discovery.serialNumber) {
       const dupRes = await database.execute({
         sql: `
-          SELECT r.id, r.sessionName, r.host, r.port, r.company_id, r.serialNumber, c.name as company_name
+          SELECT r.id, r.sessionName, r.host, r.port, r.company_id, r.serialNumber, r.is_active, c.name as company_name
           FROM routers r
           LEFT JOIN companies c ON r.company_id = c.id
-          WHERE r.serialNumber = ?
+          WHERE r.serialNumber = ? AND (r.is_active = 1 OR r.is_active IS NULL)
         `,
         args: [discovery.serialNumber],
       });
 
       if (dupRes.rows.length > 0) {
         const found = dupRes.rows[0];
-        // If it's a different router ID, flag as duplicate
+        const ownerCompanyId = found.company_id ? Number(found.company_id) : null;
+        const ownerCompanyName = found.company_name ? String(found.company_name) : "Unassigned";
+
         if (!currentRouterId || String(found.id) !== currentRouterId) {
           existingRouter = {
             id: String(found.id),
-            sessionName: String(found.sessionName),
-            host: String(found.host),
-            port: Number(found.port),
-            companyId: found.company_id ? Number(found.company_id) : null,
-            companyName: found.company_name ? String(found.company_name) : null,
             serialNumber: String(found.serialNumber),
           };
-          duplicateReason = `This physical router (Serial #${discovery.serialNumber}) is already registered as "${found.sessionName}" under Company "${found.company_name || 'Unassigned'}".`;
+
+          if (isSuperAdmin) {
+            duplicateReason = `This router is currently registered under "${ownerCompanyName}" as "${found.sessionName}". You can reassign it by choosing another company.`;
+            existingRouter.companyId = ownerCompanyId;
+            existingRouter.companyName = ownerCompanyName;
+            existingRouter.sessionName = String(found.sessionName);
+          } else if (targetCompanyId && ownerCompanyId === targetCompanyId) {
+            duplicateReason = `This router (Serial #${discovery.serialNumber}) is already registered in your company as "${found.sessionName}".`;
+            existingRouter.sessionName = String(found.sessionName);
+          } else {
+            // Completely hide other company's name and details for 100% privacy
+            duplicateReason = `This router hardware (Serial #${discovery.serialNumber}) is already registered in the system under another account. If you believe this is an error, please contact your Super Administrator.`;
+          }
         }
       }
     }
 
-    // 3. Fallback duplicate check by Cloud DNS if serial number is unavailable (e.g. CHR)
+    // 3. Fallback duplicate check by Cloud DNS
     if (!existingRouter && discovery.cloudDns) {
       const dupCloudRes = await database.execute({
         sql: `
           SELECT r.id, r.sessionName, r.host, r.port, r.company_id, c.name as company_name
           FROM routers r
           LEFT JOIN companies c ON r.company_id = c.id
-          WHERE LOWER(r.dnsName) = LOWER(?) OR LOWER(r.host) = LOWER(?)
+          WHERE (LOWER(r.dnsName) = LOWER(?) OR LOWER(r.host) = LOWER(?)) AND (r.is_active = 1 OR r.is_active IS NULL)
         `,
         args: [discovery.cloudDns, discovery.cloudDns],
       });
 
       if (dupCloudRes.rows.length > 0) {
         const found = dupCloudRes.rows[0];
+        const ownerCompanyId = found.company_id ? Number(found.company_id) : null;
+        const ownerCompanyName = found.company_name ? String(found.company_name) : "Unassigned";
+
         if (!currentRouterId || String(found.id) !== currentRouterId) {
           existingRouter = {
             id: String(found.id),
-            sessionName: String(found.sessionName),
-            host: String(found.host),
-            port: Number(found.port),
-            companyId: found.company_id ? Number(found.company_id) : null,
-            companyName: found.company_name ? String(found.company_name) : null,
           };
-          duplicateReason = `This router is already registered under Cloud DNS "${discovery.cloudDns}" as "${found.sessionName}".`;
+
+          if (isSuperAdmin) {
+            duplicateReason = `This router is registered under Cloud DNS for "${ownerCompanyName}" as "${found.sessionName}".`;
+            existingRouter.companyId = ownerCompanyId;
+            existingRouter.companyName = ownerCompanyName;
+          } else if (targetCompanyId && ownerCompanyId === targetCompanyId) {
+            duplicateReason = `This router is already registered in your company under Cloud DNS as "${found.sessionName}".`;
+          } else {
+            duplicateReason = `This router is already registered in the system under another account. If you believe this is an error, please contact your Super Administrator.`;
+          }
         }
       }
     }

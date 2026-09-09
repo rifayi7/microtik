@@ -218,37 +218,49 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. HARDWARE DEDUPLICATION & DETERMINISTIC ROUTER ID:
-    // Tie the primary router ID directly to its hardware serial number or cloud prefix
-    let targetId = serialNumber
-      ? `router-${serialNumber.replace(/[^a-zA-Z0-9_-]/g, "")}`
-      : (dnsName && dnsName.includes(".") ? `router-${dnsName.split(".")[0].replace(/[^a-zA-Z0-9_-]/g, "")}` : `router-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    // 3. HARDWARE DEDUPLICATION & MULTI-TENANT DETERMINISTIC ROUTER ID:
+    const cleanSerial = serialNumber ? serialNumber.replace(/[^a-zA-Z0-9_-]/g, "") : "";
+    const cleanPrefix = (dnsName && dnsName.includes(".")) ? dnsName.split(".")[0].replace(/[^a-zA-Z0-9_-]/g, "") : "";
+    
+    let targetId = cleanSerial
+      ? (resolvedCompanyId ? `router-${resolvedCompanyId}-${cleanSerial}` : `router-${cleanSerial}`)
+      : (cleanPrefix ? (resolvedCompanyId ? `router-${resolvedCompanyId}-${cleanPrefix}` : `router-${cleanPrefix}`) : `router-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     let isReactivating = false;
 
-    if (serialNumber) {
+    if (cleanSerial) {
       const dupRes = await database.execute({
         sql: `
-          SELECT r.id, r.sessionName, r.host, r.is_active, c.name as company_name
+          SELECT r.id, r.sessionName, r.host, r.company_id, r.is_active
           FROM routers r
-          LEFT JOIN companies c ON r.company_id = c.id
-          WHERE r.serialNumber = ? OR r.id = ?
+          WHERE (r.serialNumber = ? OR r.id = ?)
         `,
-        args: [serialNumber, targetId],
+        args: [cleanSerial, targetId],
       });
 
       if (dupRes.rows.length > 0) {
         const existing = dupRes.rows[0];
         const isActive = existing.is_active === 1 || existing.is_active === null;
+        const ownerCompanyId = existing.company_id ? Number(existing.company_id) : null;
 
         if (isActive) {
-          return NextResponse.json(
-            {
-              error: `This physical MikroTik router (Serial #${serialNumber}) is already active as "${existing.sessionName}" under Company "${existing.company_name || 'Unassigned'}".`,
-            },
-            { status: 409 }
-          );
+          if (resolvedCompanyId && ownerCompanyId === resolvedCompanyId) {
+            return NextResponse.json(
+              {
+                error: `This router (Serial #${cleanSerial}) is already registered in your company as "${existing.sessionName}".`,
+              },
+              { status: 409 }
+            );
+          } else {
+            // Privacy-safe generic message for other companies
+            return NextResponse.json(
+              {
+                error: `This router hardware (Serial #${cleanSerial}) is already registered in the system under another account. If you believe this is an error, please contact your Super Administrator.`,
+              },
+              { status: 409 }
+            );
+          }
         } else {
-          // Reactivate the previously archived router so all historical sales stay linked!
+          // Reactivate if belonging to this company or reassigning
           targetId = String(existing.id);
           isReactivating = true;
         }
