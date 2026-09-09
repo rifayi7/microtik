@@ -230,11 +230,13 @@ export async function fetchHotspotUsersForRouter(
         user.voucherStatus = "available";
       }
     }
+
+    // Filter strictly to vouchers that exist in Turso DB
+    return routerUsers.filter((user) => voucherMap.has(user.username.toLowerCase()));
   } catch (err) {
     console.error("Failed to enrich hotspot users with voucher statuses:", err);
+    return [];
   }
-
-  return routerUsers;
 }
 
 export async function fetchUserProfilesForRouter(
@@ -297,9 +299,16 @@ export async function fetchConnectedDashboard(
   let incomeToday = 0;
   let incomeMonth = 0;
 
+  let totalUsers = 0;
   try {
     const db = await getDB();
     
+    const countResult = await db.execute({
+      sql: `SELECT COUNT(*) as total FROM vouchers WHERE router_id = ?`,
+      args: [config.id]
+    });
+    totalUsers = Number(countResult.rows[0]?.total ?? 0);
+
     const todayResult = await db.execute({
       sql: `
         SELECT SUM(price_charged) as total 
@@ -324,7 +333,7 @@ export async function fetchConnectedDashboard(
     });
     incomeMonth = Number(monthResult.rows[0]?.total ?? 0);
   } catch (dbError) {
-    console.error("Failed to fetch income from DB", dbError);
+    console.error("Failed to fetch income/users from DB", dbError);
   }
 
   return {
@@ -346,7 +355,7 @@ export async function fetchConnectedDashboard(
       boardName: getRecordValue(resource, "board-name"),
     },
     activeSessions: data.sessions.length,
-    totalUsers: data.users.length,
+    totalUsers,
     incomeToday,
     incomeMonth,
     currency: config.currency ?? "AED",
@@ -428,8 +437,12 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
 
   let revenueToday = 0;
   let revenueMonth = 0;
+  let totalUsers = 0;
   try {
     const db = await getDB();
+    const countResult = await db.execute(`SELECT COUNT(*) as total FROM vouchers`);
+    totalUsers = Number(countResult.rows[0]?.total ?? 0);
+
     const todayResult = await db.execute(`
       SELECT SUM(price_charged) as total 
       FROM vouchers 
@@ -453,7 +466,7 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
     totalRouters: routers.length,
     onlineRouters,
     activeSessions: sessions.length,
-    totalUsers: users.length,
+    totalUsers,
     revenueToday,
     revenueMonth,
     vouchersGenerated: 0,
