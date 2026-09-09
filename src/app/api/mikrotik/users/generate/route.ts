@@ -6,11 +6,16 @@ import {
 } from "@/lib/mikrotik/resolve-router";
 import { generateHotspotUsers } from "@/lib/mikrotik/queries";
 import { getDB } from "@/lib/db";
+import { requireAuth } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const database = await getDB();
+    const authResult = await requireAuth(request, database);
+    if (authResult.errorResponse) return authResult.errorResponse;
+
     const body = await request.json();
     const config =
       parseRouterFromBody(body) ??

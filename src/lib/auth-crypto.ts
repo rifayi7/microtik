@@ -159,3 +159,50 @@ export function extractAuthToken(request: Request): JwtAuthPayload | null {
   const token = authHeader.slice(7).trim();
   return verifyJwt(token);
 }
+
+/**
+ * Validates that the request contains a valid JWT token and is not paused/suspended.
+ * Returns { user: JwtAuthPayload } or a ready-to-return 401/403 NextResponse.
+ */
+export async function requireAuth(
+  request: Request,
+  db?: any
+): Promise<{ user: JwtAuthPayload; errorResponse?: never } | { user?: never; errorResponse: Response }> {
+  const user = extractAuthToken(request);
+  if (!user) {
+    const { NextResponse } = await import("next/server");
+    return {
+      errorResponse: NextResponse.json(
+        { error: "Authentication required. Please log in.", requiresAuth: true },
+        { status: 401 }
+      ),
+    };
+  }
+
+  // If user is company-bound or salesperson, check company suspension status
+  if (user.role !== "superadmin" && user.companyId && db) {
+    try {
+      const compRes = await db.execute({
+        sql: "SELECT status, suspended_reason FROM companies WHERE id = ? LIMIT 1",
+        args: [user.companyId],
+      });
+      if (compRes.rows.length > 0 && Number(compRes.rows[0].status) === 0) {
+        const { NextResponse } = await import("next/server");
+        return {
+          errorResponse: NextResponse.json(
+            {
+              error: `Company account is suspended: ${compRes.rows[0].suspended_reason || "Paused by administrator"}`,
+              isSuspended: true,
+            },
+            { status: 403 }
+          ),
+        };
+      }
+    } catch {
+      // Allow proceeding if company check fails transiently
+    }
+  }
+
+  return { user };
+}
+

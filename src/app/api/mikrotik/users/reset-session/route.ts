@@ -4,11 +4,16 @@ import { parseRouterFromBody, resolveRouterFromRequestSync } from "@/lib/mikroti
 import { resetHotspotActiveSessionByUsername } from "@/lib/mikrotik/queries";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
 import type { MikrotikRouterConfig } from "@/lib/mikrotik/config";
+import { requireAuth } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const db = await getDB();
+    const authResult = await requireAuth(request, db);
+    if (authResult.errorResponse) return authResult.errorResponse;
+
     const body = await request.json();
     const rawVoucher = body.voucherCode || body.username || body.code;
     const voucherCode = String(rawVoucher || "").trim();
@@ -20,7 +25,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const db = await getDB();
     let targetConfig: MikrotikRouterConfig | null =
       parseRouterFromBody(body) ??
       (await resolveRouterFromRequestSync(body, body.routerId as string | undefined));

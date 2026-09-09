@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { getDB, seedVouchersForRouter } from "@/lib/db";
 import { parseRouterFromBody, resolveRouterFromRequestSync } from "@/lib/mikrotik/resolve-router";
+import { requireAuth } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const db = await getDB();
+    const authResult = await requireAuth(request, db);
+    if (authResult.errorResponse) return authResult.errorResponse;
+
     const body = await request.json();
     const config =
       parseRouterFromBody(body) ??
@@ -15,7 +20,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
     }
 
-    const db = await getDB();
     const campName = config.camp ?? config.sessionName;
 
     // 1. Fetch all configured validity plans for this camp from camp_validity_pricing

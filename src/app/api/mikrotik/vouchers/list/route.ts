@@ -4,11 +4,16 @@ import {
   parseRouterFromBody,
   resolveRouterFromRequestSync,
 } from "@/lib/mikrotik/resolve-router";
+import { requireAuth } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const db = await getDB();
+    const authResult = await requireAuth(request, db);
+    if (authResult.errorResponse) return authResult.errorResponse;
+
     const body = await request.json();
     const config =
       parseRouterFromBody(body) ??
@@ -23,8 +28,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    const db = await getDB();
 
     const { status, page = 1, limit = 50 } = body as {
       status?: string;
