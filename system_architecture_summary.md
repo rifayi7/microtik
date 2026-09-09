@@ -109,3 +109,17 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
    - Toggling back to **Activate** restores all company services, sales POS, and admin access instantly in real-time.
 
 
+
+---
+
+## ?? End-to-End API Security & Parameter Tamper-Proofing
+
+1. **Strict Server-Side Authorization (`requireAuth` & `buildWhereClauseAsync`)**:
+   - Every protected API route validates JWT bearer tokens, signature integrity, and active tenant status.
+   - For all non-superadmin users (company admins, report viewers, field salespersons), access boundaries (`company_id`, `allowed_camps`, `allowed_router_ids`) are retrieved **authoritatively from Turso DB tables** (`report_users`, `sales_persons`, `company_admins`) on the server.
+2. **Neutralization of Client Parameter Injection**:
+   - Attack vector mitigated: Malicious clients attempting to append or modify query parameters (e.g. `allowedCamps`, `companyId`, `userType`, `routerId`) cannot escalate permissions or view other companies'/camps' sales logs, summaries, or payments.
+   - Any query specifying unauthorized camp or router identifiers is filtered out or rejected with HTTP 403 `Access Denied`.
+3. **Password Security Standard**:
+   - Uses Node.js native `scrypt` hashing with unique per-password cryptographic salts across all ecosystem tables (`sales_persons`, `report_users`, `company_admins`).
+   - Backward-compatible auto-upgrade smoothly migrates legacy credentials upon successful login.

@@ -20,6 +20,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
     }
 
+    // Permission enforcement for salesperson
+    if (authResult.user?.role === "salesperson" && authResult.user.userId) {
+      const spRes = await db.execute({
+        sql: "SELECT allowed_camps FROM sales_persons WHERE id = ? LIMIT 1",
+        args: [authResult.user.userId],
+      });
+      if (spRes.rows.length > 0 && spRes.rows[0].allowed_camps) {
+        try {
+          const allowed: string[] = JSON.parse(String(spRes.rows[0].allowed_camps));
+          if (Array.isArray(allowed) && allowed.length > 0) {
+            const allowedLower = allowed.map((c) => c.toLowerCase());
+            const reqRouterId = (config.id || "").toLowerCase();
+            const reqSession = (config.sessionName || "").toLowerCase();
+            const reqCamp = (config.camp || "").toLowerCase();
+
+            const isAllowed =
+              allowedLower.includes(reqRouterId) ||
+              (reqSession && allowedLower.includes(reqSession)) ||
+              (reqCamp && allowedLower.includes(reqCamp));
+
+            if (!isAllowed) {
+              return NextResponse.json(
+                { error: "Access Denied: You do not have permission to view plans for this camp." },
+                { status: 403 }
+              );
+            }
+          }
+        } catch {}
+      }
+    }
+
     const campName = config.camp ?? config.sessionName;
 
     // 1. Fetch all configured validity plans for this camp from camp_validity_pricing

@@ -52,12 +52,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // Check company active status for operator / router
+    // Check salesperson allowed camps and company status from database
     if (resolvedSalesPersonId) {
       try {
         const spCompRes = await db.execute({
           sql: `
-            SELECT sp.company_id, c.status as company_status, c.suspended_reason
+            SELECT sp.company_id, sp.allowed_camps, c.status as company_status, c.suspended_reason
             FROM sales_persons sp
             LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
             WHERE sp.id = ?
@@ -71,9 +71,38 @@ export async function POST(request: Request) {
             const reason = compRow.suspended_reason ? String(compRow.suspended_reason) : "Sales paused: Company account is temporarily suspended due to outstanding dues.";
             return NextResponse.json({ error: reason, isSuspended: true }, { status: 403 });
           }
+
+          // Strict router permission check: ensure this router is permitted for the salesperson
+          let allowedCamps: string[] = [];
+          if (compRow.allowed_camps) {
+            try {
+              allowedCamps = JSON.parse(String(compRow.allowed_camps));
+            } catch {
+              allowedCamps = [String(compRow.allowed_camps)];
+            }
+          }
+
+          if (allowedCamps.length > 0) {
+            const allowedLower = allowedCamps.map((c) => c.toLowerCase());
+            const reqRouterId = (config.id || "").toLowerCase();
+            const reqSession = (config.sessionName || "").toLowerCase();
+            const reqCamp = (config.camp || "").toLowerCase();
+
+            const isAllowed =
+              allowedLower.includes(reqRouterId) ||
+              (reqSession && allowedLower.includes(reqSession)) ||
+              (reqCamp && allowedLower.includes(reqCamp));
+
+            if (!isAllowed) {
+              return NextResponse.json(
+                { error: "Access Denied: You do not have permission to sell vouchers for this camp router." },
+                { status: 403 }
+              );
+            }
+          }
         }
       } catch (err) {
-        console.warn("Could not check company status in redeem:", err);
+        console.warn("Could not check company status / allowed camps in redeem:", err);
       }
     }
 
