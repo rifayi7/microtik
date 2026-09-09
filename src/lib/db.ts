@@ -83,6 +83,8 @@ export async function initializeDB() {
       password TEXT NOT NULL,
       display_name TEXT,
       role TEXT DEFAULT 'salesperson',
+      company_id INTEGER REFERENCES companies(id),
+      allowed_camps TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
@@ -94,13 +96,13 @@ export async function initializeDB() {
   }
 
   try {
-    await db.execute("ALTER TABLE sales_persons ADD COLUMN company_name TEXT;");
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN allowed_camps TEXT;");
   } catch (e) {
     // Column already exists
   }
 
   try {
-    await db.execute("ALTER TABLE sales_persons ADD COLUMN allowed_camps TEXT;");
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN company_id INTEGER REFERENCES companies(id);");
   } catch (e) {
     // Column already exists
   }
@@ -125,9 +127,7 @@ export async function initializeDB() {
       password TEXT NOT NULL,
       display_name TEXT,
       company_id INTEGER REFERENCES companies(id),
-      company_name TEXT,
       allowed_camp_ids TEXT,
-      allowed_router_ids TEXT,
       status INTEGER DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -209,11 +209,6 @@ export async function initializeDB() {
     await db.execute("ALTER TABLE sales_persons ADD COLUMN company_id INTEGER REFERENCES companies(id);");
   } catch (e) {}
 
-  // Ensure allowed_router_ids exists on sales_persons (JSON array of router.id strings)
-  try {
-    await db.execute("ALTER TABLE sales_persons ADD COLUMN allowed_router_ids TEXT;");
-  } catch (e) {}
-
   // Ensure company_id exists on routers
   try {
     await db.execute("ALTER TABLE routers ADD COLUMN company_id INTEGER REFERENCES companies(id);");
@@ -278,46 +273,14 @@ export async function initializeDB() {
       WHERE company_id IS NULL
     `);
 
-    // 4. Link company_id and sales_person_id on sales_persons and vouchers
+    // 4. Link company_id on sales_persons from companies table
     await db.execute(`
       UPDATE sales_persons 
       SET company_id = (SELECT c.id FROM companies c WHERE LOWER(c.name) = LOWER(sales_persons.company_name) LIMIT 1)
       WHERE company_name IS NOT NULL AND company_id IS NULL
     `);
 
-    // 5. Backfill allowed_router_ids on sales_persons from their allowed_camps
-    const spRows = await db.execute("SELECT id, allowed_camps, camp_name, allowed_router_ids FROM sales_persons WHERE allowed_router_ids IS NULL");
-    for (const sp of spRows.rows) {
-      let allowedCamps: string[] = [];
-      if (sp.allowed_camps) {
-        try {
-          allowedCamps = JSON.parse(String(sp.allowed_camps));
-        } catch {
-          allowedCamps = [String(sp.allowed_camps)];
-        }
-      } else if (sp.camp_name && sp.camp_name !== "All Camps") {
-        allowedCamps = [String(sp.camp_name)];
-      }
-
-      if (allowedCamps.length > 0) {
-        const rRes = await db.execute("SELECT id, camp, sessionName FROM routers");
-        const matchedIds: string[] = [];
-        for (const r of rRes.rows) {
-          const rId = String(r.id);
-          const rCamp = String(r.camp || "").toLowerCase();
-          const rSess = String(r.sessionName || "").toLowerCase();
-          if (allowedCamps.some((c) => c.toLowerCase() === rCamp || c.toLowerCase() === rSess || c.toLowerCase() === rId.toLowerCase())) {
-            matchedIds.push(rId);
-          }
-        }
-        await db.execute({
-          sql: "UPDATE sales_persons SET allowed_router_ids = ? WHERE id = ?",
-          args: [JSON.stringify(matchedIds), Number(sp.id)],
-        });
-      }
-    }
-
-    // 6. Link vouchers.sales_person_id for existing sales records
+    // 5. Link vouchers.sales_person_id for existing sales records
     await db.execute(`
       UPDATE vouchers 
       SET sales_person_id = (

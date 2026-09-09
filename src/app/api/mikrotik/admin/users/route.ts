@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     let query = `
       SELECT 
         sp.id, sp.username, sp.display_name, sp.password, sp.role, 
-        sp.company_id, sp.allowed_camps, sp.allowed_router_ids, sp.created_at,
+        sp.company_id, sp.allowed_camps, sp.created_at,
         c.id as resolved_company_id, c.name as resolved_company_name
       FROM sales_persons sp
       LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
@@ -46,15 +46,6 @@ export async function GET(request: Request) {
         allowedCamps = [String(row.camp_name)];
       }
 
-      let allowedRouterIds: string[] = [];
-      if (row.allowed_router_ids) {
-        try {
-          allowedRouterIds = JSON.parse(String(row.allowed_router_ids));
-        } catch {
-          allowedRouterIds = [String(row.allowed_router_ids)];
-        }
-      }
-
       const finalCompanyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
       const finalCompanyName = String(row.resolved_company_name || row.company_name || "");
 
@@ -68,7 +59,6 @@ export async function GET(request: Request) {
         companyId: finalCompanyId,
         companyName: finalCompanyName,
         allowedCamps,
-        allowedRouterIds,
         createdAt: String(row.created_at || ""),
       };
     });
@@ -83,7 +73,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { username, displayName, password, role, campName, companyName, companyId, allowedCamps, allowedRouterIds } = body;
+    const { username, displayName, password, role, campName, companyName, companyId, allowedCamps } = body;
 
     if (!username || !password || !displayName || !displayName.trim()) {
       return NextResponse.json({ success: false, error: "Username, password, and Display Name are required" }, { status: 400 });
@@ -100,11 +90,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Username already exists" }, { status: 400 });
     }
 
-    // Resolve company_id if not explicitly provided
+    // Resolve company_id
     let resolvedCompanyId: number | null = companyId ? Number(companyId) : null;
     let resolvedCompanyName: string | null = companyName ? String(companyName).trim() : null;
 
-    if (!resolvedCompanyId && resolvedCompanyName) {
+    if (!resolvedCompanyId && resolvedCompanyName && resolvedCompanyName !== "NONE") {
       const compRes = await database.execute({
         sql: "SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
         args: [resolvedCompanyName],
@@ -123,17 +113,21 @@ export async function POST(request: Request) {
       }
     }
 
+    if (!resolvedCompanyId) {
+      return NextResponse.json(
+        { success: false, error: "A valid assigned Company is required for creating a salesperson." },
+        { status: 400 }
+      );
+    }
+
     const hashedPassword = hashPassword(password.trim());
     const campsArray = Array.isArray(allowedCamps) ? allowedCamps : (campName && campName !== "All Camps" ? [campName] : []);
     const allowedCampsStr = JSON.stringify(campsArray);
-    const routerIdsArray = Array.isArray(allowedRouterIds) ? allowedRouterIds : [];
-    const allowedRouterIdsStr = JSON.stringify(routerIdsArray);
-    const primaryCamp = campsArray.length > 0 ? campsArray[0] : (campName || null);
 
     const insertResult = await database.execute({
       sql: `
-        INSERT INTO sales_persons (username, display_name, password, role, company_id, allowed_camps, allowed_router_ids) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sales_persons (username, display_name, password, role, company_id, allowed_camps, created_at) 
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
       `,
       args: [
         username.trim(), 
@@ -142,7 +136,6 @@ export async function POST(request: Request) {
         role || "salesperson", 
         resolvedCompanyId,
         allowedCampsStr,
-        allowedRouterIdsStr,
       ],
     });
 
@@ -178,11 +171,11 @@ export async function DELETE(request: Request) {
   }
 }
 
-// PUT /api/mikrotik/admin/users (Update username / displayName / password / camp / company / companyId / allowedCamps / allowedRouterIds / role)
+// PUT /api/mikrotik/admin/users (Update username / displayName / password / camp / company / companyId / allowedCamps / role)
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, username, displayName, password, role, campName, companyName, companyId, allowedCamps, allowedRouterIds } = body;
+    const { id, username, displayName, password, role, campName, companyName, companyId, allowedCamps } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: "User ID is required" }, { status: 400 });
@@ -237,9 +230,6 @@ export async function PUT(request: Request) {
     const hashedPassword = password && password.trim() ? hashPassword(password.trim()) : null;
     const campsArray = Array.isArray(allowedCamps) ? allowedCamps : (campName && campName !== "All Camps" ? [campName] : undefined);
     const allowedCampsStr = campsArray !== undefined ? JSON.stringify(campsArray) : undefined;
-    const routerIdsArray = Array.isArray(allowedRouterIds) ? allowedRouterIds : undefined;
-    const allowedRouterIdsStr = routerIdsArray !== undefined ? JSON.stringify(routerIdsArray) : undefined;
-    const primaryCamp = campsArray && campsArray.length > 0 ? campsArray[0] : campName;
 
     await database.execute({
       sql: `
@@ -250,7 +240,7 @@ export async function PUT(request: Request) {
             role = COALESCE(?, role),
             company_id = COALESCE(?, company_id),
             allowed_camps = COALESCE(?, allowed_camps),
-            allowed_router_ids = COALESCE(?, allowed_router_ids)
+            created_at = COALESCE(created_at, datetime('now'))
         WHERE id = ?
       `,
       args: [
@@ -260,7 +250,6 @@ export async function PUT(request: Request) {
         role ?? null,
         resolvedCompanyId ?? null,
         allowedCampsStr ?? null,
-        allowedRouterIdsStr ?? null,
         Number(id),
       ],
     });

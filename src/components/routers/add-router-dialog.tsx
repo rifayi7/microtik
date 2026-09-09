@@ -190,6 +190,11 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
       return;
     }
 
+    if (companies.length > 0 && !companyId) {
+      toast.error("Assigning to a Company is mandatory");
+      return;
+    }
+
     if (duplicateWarning) {
       toast.error("Cannot save duplicate router. " + duplicateWarning);
       return;
@@ -209,12 +214,12 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
         hotspotName: (hotspotName || sessionName).trim(),
         dnsName: (dnsName || "").trim(),
         currency,
+        companyId: companyId ? Number(companyId) : undefined,
         company: selectedCompany?.name,
-        camp: selectedCompany?.name || sessionName.trim(),
         sessionTimeout,
         liveReport,
         phone: phone.trim(),
-      });
+      } as any);
 
       toast.success(`Router "${sessionName}" saved successfully`);
       reset();
@@ -388,11 +393,11 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
                   <div className="grid gap-1.5">
                     <Label htmlFor="companySelect" className="flex items-center gap-1.5">
                       <Building2 className="size-3.5 text-muted-foreground" />
-                      Assign to Company
+                      Assign to Company *
                     </Label>
                     <Select value={companyId} onValueChange={(val) => val && setCompanyId(val)}>
                       <SelectTrigger id="companySelect">
-                        <SelectValue placeholder="Select Company" />
+                        <SelectValue placeholder="Select Company (Required)" />
                       </SelectTrigger>
                       <SelectContent>
                         {companies.map((c) => (

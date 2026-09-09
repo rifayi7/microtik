@@ -19,17 +19,18 @@ export async function GET(request: Request) {
     
     const database = await getDB();
     
-    // Dynamically query latest allowed_camps, allowed_router_ids, and company_id from DB
-    if (!authUser && (salesPersonIdFilter || salespersonFilter)) {
+    // Dynamically query latest allowed_camps and company_id from DB for salesperson
+    if (authUser?.role === "salesperson" || (!authUser && (salesPersonIdFilter || salespersonFilter))) {
       try {
+        const lookupId = salesPersonIdFilter || (authUser?.userId ? String(authUser.userId) : "");
+        const lookupName = salespersonFilter || (authUser?.sub ? String(authUser.sub) : "");
         const spRes = await database.execute({
-          sql: "SELECT id, username, display_name, role, company_id, allowed_camps, allowed_router_ids FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
-          args: [salesPersonIdFilter || "", salespersonFilter || "", salespersonFilter || ""],
+          sql: "SELECT id, username, display_name, role, company_id, allowed_camps FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
+          args: [lookupId, lookupName, lookupName],
         });
         if (spRes.rows.length > 0) {
           const row = spRes.rows[0];
           let liveAllowedCamps: string[] = [];
-          let liveAllowedRouterIds: string[] = [];
           if (row.allowed_camps) {
             try {
               liveAllowedCamps = JSON.parse(String(row.allowed_camps));
@@ -37,20 +38,12 @@ export async function GET(request: Request) {
               liveAllowedCamps = [String(row.allowed_camps)];
             }
           }
-          if (row.allowed_router_ids) {
-            try {
-              liveAllowedRouterIds = JSON.parse(String(row.allowed_router_ids));
-            } catch {
-              liveAllowedRouterIds = [String(row.allowed_router_ids)];
-            }
-          }
           authUser = {
             sub: String(row.username),
             userId: Number(row.id),
             role: String(row.role || "salesperson"),
-            companyId: row.company_id ? Number(row.company_id) : undefined,
+            companyId: row.company_id ? Number(row.company_id) : (authUser?.companyId ? Number(authUser.companyId) : undefined),
             allowedCamps: liveAllowedCamps,
-            allowedRouterIds: liveAllowedRouterIds,
           };
         }
       } catch (err) {
@@ -105,24 +98,22 @@ export async function GET(request: Request) {
       });
     }
 
-    // Salesperson scoping: filter by allowed_router_ids or company_id / allowed_camps
+    // Salesperson scoping: filter by explicitly allowed router IDs in allowed_camps
     if (authUser && authUser.role !== "superadmin") {
-      const hasSpecificRouterIds = authUser.allowedRouterIds && authUser.allowedRouterIds.length > 0;
-      const hasSpecificCamps = authUser.allowedCamps && authUser.allowedCamps.length > 0;
-
-      if (hasSpecificRouterIds || hasSpecificCamps || authUser.companyId) {
-        const allowedIds = (authUser.allowedRouterIds || []).map((id) => id.toLowerCase());
+      if (authUser.role === "salesperson") {
         const allowedCampsLower = (authUser.allowedCamps || []).map((c) => c.toLowerCase());
-
         dbRouters = dbRouters.filter((r) => {
-          const idMatch = allowedIds.includes(r.id.toLowerCase());
+          return allowedCampsLower.includes(r.id.toLowerCase()) ||
+                 (r.camp && allowedCampsLower.includes(r.camp.toLowerCase())) ||
+                 (r.sessionName && allowedCampsLower.includes(r.sessionName.toLowerCase()));
+        });
+      } else if (authUser.companyId || (authUser.allowedCamps && authUser.allowedCamps.length > 0)) {
+        const allowedCampsLower = (authUser.allowedCamps || []).map((c) => c.toLowerCase());
+        dbRouters = dbRouters.filter((r) => {
+          const idMatch = allowedCampsLower.includes(r.id.toLowerCase());
           const campMatch = (r.camp && allowedCampsLower.includes(r.camp.toLowerCase())) ||
                             (r.sessionName && allowedCampsLower.includes(r.sessionName.toLowerCase()));
           const companyMatch = authUser?.companyId && r.companyId === authUser.companyId;
-
-          if (hasSpecificRouterIds && !hasSpecificCamps) {
-            return idMatch;
-          }
           return idMatch || campMatch || companyMatch;
         });
       }
@@ -178,6 +169,13 @@ export async function POST(request: Request) {
       if (compRes.rows.length > 0) {
         resolvedCompanyId = Number(compRes.rows[0].id);
       }
+    }
+
+    if (!resolvedCompanyId) {
+      return NextResponse.json(
+        { error: "Assigning router to a company is mandatory. Please select a company." },
+        { status: 400 }
+      );
     }
 
     // 2. Test Connection and Extract Permanent Hardware Identity

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDB } from "@/lib/db";
 import { mikrotikErrorResponse } from "@/lib/mikrotik/api-utils";
-import { extractAuthToken } from "@/lib/auth-crypto";
+import { extractAuthToken, hashPassword } from "@/lib/auth-crypto";
 
 export const runtime = "nodejs";
 
@@ -23,16 +23,13 @@ export async function GET(request: Request) {
         ru.display_name, 
         ru.password, 
         ru.company_id, 
-        ru.company_name, 
         ru.allowed_camp_ids, 
-        ru.allowed_router_ids, 
         ru.status, 
         ru.created_at,
         c.id as resolved_company_id,
         c.name as resolved_company_name
       FROM report_users ru
-      LEFT JOIN companies c ON (ru.company_id IS NOT NULL AND c.id = ru.company_id) 
-                            OR (ru.company_name IS NOT NULL AND LOWER(c.name) = LOWER(ru.company_name))
+      LEFT JOIN companies c ON ru.company_id IS NOT NULL AND c.id = ru.company_id
       ORDER BY ru.id ASC
     `;
 
@@ -48,27 +45,17 @@ export async function GET(request: Request) {
         }
       }
 
-      let allowedRouterIds: string[] = [];
-      if (row.allowed_router_ids) {
-        try {
-          allowedRouterIds = JSON.parse(String(row.allowed_router_ids));
-        } catch {
-          allowedRouterIds = [String(row.allowed_router_ids)];
-        }
-      }
-
       const finalCompanyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
-      const finalCompanyName = String(row.resolved_company_name || row.company_name || "");
+      const finalCompanyName = String(row.resolved_company_name || "");
 
       return {
         id: Number(row.id),
         username: String(row.username),
         displayName: String(row.display_name || row.username),
-        password: String(row.password || ""),
+        password: "••••••••",
         companyId: finalCompanyId,
         companyName: finalCompanyName,
         allowedCampIds,
-        allowedRouterIds,
         status: Number(row.status ?? 1),
         createdAt: String(row.created_at || ""),
       };
@@ -99,9 +86,7 @@ export async function POST(request: Request) {
         password,
         displayName,
         companyId,
-        companyName,
         allowedCampIds,
-        allowedRouterIds,
         status,
       } = body;
 
@@ -116,30 +101,16 @@ export async function POST(request: Request) {
       const cleanUsername = username.trim();
       const cleanDisplayName = displayName.trim();
       const cleanCampIdsJson = JSON.stringify(Array.isArray(allowedCampIds) ? allowedCampIds : []);
-      const cleanRouterIdsJson = JSON.stringify(Array.isArray(allowedRouterIds) ? allowedRouterIds : []);
       const userStatus = status !== undefined ? (Number(status) ? 1 : 0) : 1;
 
-      // Resolve Company ID & Name
+      // Resolve Company ID
       let targetCompanyId: number | null = companyId ? Number(companyId) : null;
-      let targetCompanyName: string | null = companyName ? String(companyName).trim() : null;
 
-      if (targetCompanyId) {
-        const compCheck = await database.execute({
-          sql: "SELECT id, name FROM companies WHERE id = ? LIMIT 1",
-          args: [targetCompanyId],
-        });
-        if (compCheck.rows.length > 0) {
-          targetCompanyName = String(compCheck.rows[0].name);
-        }
-      } else if (targetCompanyName) {
-        const compCheck = await database.execute({
-          sql: "SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?) LIMIT 1",
-          args: [targetCompanyName],
-        });
-        if (compCheck.rows.length > 0) {
-          targetCompanyId = Number(compCheck.rows[0].id);
-          targetCompanyName = String(compCheck.rows[0].name);
-        }
+      if (!targetCompanyId) {
+        return NextResponse.json(
+          { error: "A valid assigned Company is mandatory for creating a sales report user." },
+          { status: 400 }
+        );
       }
 
       if (action === "create") {
@@ -155,20 +126,20 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: `Username "${cleanUsername}" already exists` }, { status: 400 });
         }
 
+        const hashedPassword = hashPassword(password.trim());
+
         const insertRes = await database.execute({
           sql: `
             INSERT INTO report_users 
-              (username, password, display_name, company_id, company_name, allowed_camp_ids, allowed_router_ids, status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (username, password, display_name, company_id, allowed_camp_ids, status, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
           `,
           args: [
             cleanUsername,
-            password.trim(),
+            hashedPassword,
             cleanDisplayName,
             targetCompanyId,
-            targetCompanyName,
             cleanCampIdsJson,
-            cleanRouterIdsJson,
             userStatus,
           ],
         });
@@ -186,21 +157,20 @@ export async function POST(request: Request) {
         }
 
         if (password && typeof password === "string" && password.trim() !== "") {
+          const hashedPassword = hashPassword(password.trim());
           await database.execute({
             sql: `
               UPDATE report_users 
-              SET username = ?, password = ?, display_name = ?, company_id = ?, company_name = ?, 
-                  allowed_camp_ids = ?, allowed_router_ids = ?, status = ?
+              SET username = ?, password = ?, display_name = ?, company_id = ?, 
+                  allowed_camp_ids = ?, status = ?
               WHERE id = ?
             `,
             args: [
               cleanUsername,
-              password.trim(),
+              hashedPassword,
               cleanDisplayName,
               targetCompanyId,
-              targetCompanyName,
               cleanCampIdsJson,
-              cleanRouterIdsJson,
               userStatus,
               Number(id),
             ],
@@ -209,17 +179,15 @@ export async function POST(request: Request) {
           await database.execute({
             sql: `
               UPDATE report_users 
-              SET username = ?, display_name = ?, company_id = ?, company_name = ?, 
-                  allowed_camp_ids = ?, allowed_router_ids = ?, status = ?
+              SET username = ?, display_name = ?, company_id = ?, 
+                  allowed_camp_ids = ?, status = ?
               WHERE id = ?
             `,
             args: [
               cleanUsername,
               cleanDisplayName,
               targetCompanyId,
-              targetCompanyName,
               cleanCampIdsJson,
-              cleanRouterIdsJson,
               userStatus,
               Number(id),
             ],

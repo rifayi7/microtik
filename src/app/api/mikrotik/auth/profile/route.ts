@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       sql: `
         SELECT 
           sp.id, sp.username, sp.display_name, sp.role, 
-          sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
+          sp.company_id, sp.allowed_camps,
           c.id as resolved_company_id, c.name as resolved_company_name,
           COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
         FROM sales_persons sp
@@ -52,15 +52,6 @@ export async function GET(request: Request) {
       allowedCamps = [String(row.camp_name)];
     }
 
-    let allowedRouterIds: string[] = [];
-    if (row.allowed_router_ids) {
-      try {
-        allowedRouterIds = JSON.parse(String(row.allowed_router_ids));
-      } catch {
-        allowedRouterIds = [String(row.allowed_router_ids)];
-      }
-    }
-
     const companyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
     const companyName = row.resolved_company_name ? String(row.resolved_company_name) : null;
     const companyTimezone = String(row.company_timezone || "Asia/Dubai");
@@ -77,7 +68,6 @@ export async function GET(request: Request) {
         companyName,
         companyTimezone,
         allowedCamps,
-        allowedRouterIds,
       },
     });
   } catch (error) {

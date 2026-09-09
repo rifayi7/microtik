@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       sql: `
         SELECT 
           sp.id, sp.username, sp.password, sp.display_name, sp.role,
-          sp.company_id, sp.allowed_camps, sp.allowed_router_ids,
+          sp.company_id, sp.allowed_camps,
           c.id as resolved_company_id, c.name as resolved_company_name,
           COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
         FROM sales_persons sp
@@ -50,7 +50,6 @@ export async function POST(request: Request) {
           companyName: "",
           companyTimezone: "Asia/Dubai",
           allowedCamps: [] as string[],
-          allowedRouterIds: [] as string[],
         };
 
         const token = signJwt({
@@ -61,7 +60,6 @@ export async function POST(request: Request) {
           companyId: user.companyId,
           companyName: user.companyName,
           allowedCamps: user.allowedCamps,
-          allowedRouterIds: user.allowedRouterIds,
         });
 
         return NextResponse.json({
@@ -114,15 +112,6 @@ export async function POST(request: Request) {
       allowedCamps = [String(row.camp_name)];
     }
 
-    let allowedRouterIds: string[] = [];
-    if (row.allowed_router_ids) {
-      try {
-        allowedRouterIds = JSON.parse(String(row.allowed_router_ids));
-      } catch {
-        allowedRouterIds = [String(row.allowed_router_ids)];
-      }
-    }
-
     const finalCompanyId = row.resolved_company_id ? Number(row.resolved_company_id) : (row.company_id ? Number(row.company_id) : null);
     const finalCompanyName = String(row.resolved_company_name || row.company_name || "");
     const finalCompanyTimezone = String(row.company_timezone || "Asia/Dubai");
@@ -137,7 +126,6 @@ export async function POST(request: Request) {
       companyName: finalCompanyName,
       companyTimezone: finalCompanyTimezone,
       allowedCamps,
-      allowedRouterIds,
     };
 
     const token = signJwt({
@@ -148,7 +136,6 @@ export async function POST(request: Request) {
       companyId: user.companyId,
       companyName: user.companyName,
       allowedCamps: user.allowedCamps,
-      allowedRouterIds: user.allowedRouterIds,
     });
 
     return NextResponse.json({

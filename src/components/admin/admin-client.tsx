@@ -66,7 +66,6 @@ interface AdminUser {
   companyName: string;
   companyId?: string | number | null;
   allowedCamps: string[];
-  allowedRouterIds?: string[];
   createdAt: string;
 }
 
@@ -96,6 +95,7 @@ interface CompanyItem {
 }
 
 interface CampWithCompany {
+  campId?: string | null;
   name: string;
   companyName: string | null;
   companyId?: number | null;
@@ -107,9 +107,8 @@ interface ReportUser {
   displayName: string;
   password?: string;
   companyId: number | null;
-  companyName: string;
+  companyName?: string;
   allowedCampIds: string[];
-  allowedRouterIds: string[];
   status: number;
   createdAt: string;
 }
@@ -146,6 +145,7 @@ export function AdminClient() {
   }, [router]);
 
   // Users State
+  // Users State
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [userSearch, setUserSearch] = useState("");
   const [userModalOpen, setUserModalOpen] = useState(false);
@@ -154,7 +154,7 @@ export function AdminClient() {
   const [newDisplayName, setNewDisplayName] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("salesperson");
-  const [newUserCompany, setNewUserCompany] = useState("");
+  const [newUserCompanyId, setNewUserCompanyId] = useState<string>("");
   const [newUserAllowedCamps, setNewUserAllowedCamps] = useState<string[]>([]);
   const [savingUser, setSavingUser] = useState(false);
 
@@ -216,6 +216,7 @@ export function AdminClient() {
           registeredCamps: string[];
           campsWithCompany?: CampWithCompany[];
           companies?: string[];
+          companyObjects?: CompanyItem[];
           validityProfiles: string[];
         }>("/api/mikrotik/admin/pricing"),
         fetchMikrotikApi<{
@@ -236,12 +237,25 @@ export function AdminClient() {
       if (pricingRes.campsWithCompany) setCampsWithCompany(pricingRes.campsWithCompany);
       
       const allCompanies = new Set<string>();
+      const compItemsMap = new Map<number, CompanyItem>();
+
+      if (pricingRes.companyObjects) {
+        pricingRes.companyObjects.forEach((c) => {
+          allCompanies.add(c.name);
+          compItemsMap.set(c.id, c);
+        });
+      }
       if (pricingRes.companies) {
         pricingRes.companies.forEach((c) => allCompanies.add(c));
       }
       if (companiesRes.companies) {
-        companiesRes.companies.forEach((c) => allCompanies.add(c.name));
-        setAllCompaniesList(companiesRes.companies);
+        companiesRes.companies.forEach((c) => {
+          allCompanies.add(c.name);
+          compItemsMap.set(c.id, c);
+        });
+      }
+      if (compItemsMap.size > 0) {
+        setAllCompaniesList(Array.from(compItemsMap.values()));
       }
       if (allCompanies.size === 0) {
         allCompanies.add("Apricom DXB");
@@ -267,16 +281,14 @@ export function AdminClient() {
     void loadData();
   }, [loadData]);
 
-  // Handle salesperson camp options filtered strictly by company (camps only visible after selecting a company)
-  const availableCampsForSelectedCompany = Array.from(
-    new Set(
-      newUserCompany && newUserCompany.trim() !== ""
-        ? campsWithCompany
-            .filter((c) => c.companyName && c.companyName.toLowerCase() === newUserCompany.toLowerCase())
-            .map((c) => c.name)
-        : []
-    )
-  );
+  // Handle salesperson router options filtered strictly by company ID
+  const availableRoutersForSelectedCompany = campsWithCompany.filter((c) => {
+    if (!newUserCompanyId) return false;
+    const selectedComp = allCompaniesList.find((co) => String(co.id) === newUserCompanyId);
+    if (!selectedComp) return false;
+    if (c.companyId && Number(c.companyId) === Number(selectedComp.id)) return true;
+    return Boolean(c.companyName && c.companyName.toLowerCase() === selectedComp.name.toLowerCase());
+  });
 
   const handleOpenAddUser = () => {
     setEditingUser(null);
@@ -284,7 +296,7 @@ export function AdminClient() {
     setNewDisplayName("");
     setNewPassword("");
     setNewUserRole("salesperson");
-    setNewUserCompany("");
+    setNewUserCompanyId("");
     setNewUserAllowedCamps([]);
     setUserModalOpen(true);
   };
@@ -295,19 +307,34 @@ export function AdminClient() {
     setNewDisplayName(user.displayName || user.username);
     setNewPassword("");
     setNewUserRole(user.role);
-    setNewUserCompany(user.companyName || "");
-    setNewUserAllowedCamps(user.allowedCamps || (user.campName && user.campName !== "All Camps" ? [user.campName] : []));
+    
+    // Resolve companyId for select dropdown
+    let matchedCompanyId = user.companyId ? String(user.companyId) : "";
+    if (!matchedCompanyId && user.companyName) {
+      const comp = allCompaniesList.find((c) => c.name.toLowerCase() === user.companyName.toLowerCase());
+      if (comp) matchedCompanyId = String(comp.id);
+    }
+    setNewUserCompanyId(matchedCompanyId);
+
+    // Store hardware router IDs in allowed camps
+    const routerIds = (user.allowedCamps || []).map((campOrRouterId) => {
+      const matched = campsWithCompany.find(
+        (c) => c.campId?.toLowerCase() === campOrRouterId.toLowerCase() || c.name.toLowerCase() === campOrRouterId.toLowerCase()
+      );
+      return matched?.campId || campOrRouterId;
+    });
+    setNewUserAllowedCamps(routerIds);
     setUserModalOpen(true);
   };
 
-  const toggleAllowedCamp = (campName: string) => {
+  const toggleAllowedRouter = (routerId: string) => {
     setNewUserAllowedCamps((prev) => {
-      const lower = campName.toLowerCase();
+      const lower = routerId.toLowerCase();
       const exists = prev.some((c) => c.toLowerCase() === lower);
       if (exists) {
         return prev.filter((c) => c.toLowerCase() !== lower);
       } else {
-        return [...prev, campName];
+        return [...prev, routerId];
       }
     });
   };
@@ -323,6 +350,10 @@ export function AdminClient() {
       toast.error("Please enter a display name");
       return;
     }
+    if (!newUserCompanyId || newUserCompanyId.trim() === "") {
+      toast.error("Please select an assigned company for this salesperson");
+      return;
+    }
     if (!editingUser && !newPassword.trim()) {
       toast.error("Please enter a password");
       return;
@@ -330,37 +361,31 @@ export function AdminClient() {
 
     setSavingUser(true);
     try {
-      const primaryCamp = newUserAllowedCamps.length > 0 ? newUserAllowedCamps[0] : "All Camps";
+      const selectedCompany = allCompaniesList.find((c) => String(c.id) === newUserCompanyId);
+      const compId = selectedCompany ? selectedCompany.id : Number(newUserCompanyId);
+      const compName = selectedCompany ? selectedCompany.name : undefined;
+
+      const payload = {
+        id: editingUser?.id,
+        username: newUsername.trim(),
+        displayName: newDisplayName.trim(),
+        password: newPassword.trim() ? newPassword.trim() : undefined,
+        role: newUserRole,
+        companyId: compId,
+        companyName: compName,
+        allowedCamps: newUserAllowedCamps, // Router hardware IDs stored directly in allowedCamps
+      };
 
       if (editingUser) {
-        // Update user
         await fetchMikrotikApi("/api/mikrotik/admin/users", {
           method: "PUT",
-          body: JSON.stringify({
-            id: editingUser.id,
-            username: newUsername.trim(),
-            displayName: newDisplayName.trim(),
-            password: newPassword.trim() ? newPassword.trim() : undefined,
-            role: newUserRole,
-            companyName: newUserCompany,
-            campName: primaryCamp,
-            allowedCamps: newUserAllowedCamps,
-          }),
+          body: JSON.stringify(payload),
         });
         toast.success(`Salesperson account updated to "${newDisplayName.trim()}"!`);
       } else {
-        // Create user
         await fetchMikrotikApi("/api/mikrotik/admin/users", {
           method: "POST",
-          body: JSON.stringify({
-            username: newUsername.trim(),
-            displayName: newDisplayName.trim(),
-            password: newPassword.trim(),
-            role: newUserRole,
-            companyName: newUserCompany,
-            campName: primaryCamp,
-            allowedCamps: newUserAllowedCamps,
-          }),
+          body: JSON.stringify(payload),
         });
         toast.success(`Salesperson "${newDisplayName.trim()}" created successfully!`);
       }
@@ -575,7 +600,13 @@ export function AdminClient() {
     setReportDisplayName(u.displayName || u.username);
     setReportPassword("");
     setReportUserCompanyId(u.companyId ? String(u.companyId) : "");
-    setReportUserAllowedCamps(u.allowedCampIds || []);
+    const routerIds = (u.allowedCampIds || []).map((campOrRouterId) => {
+      const matched = campsWithCompany.find(
+        (c) => c.campId?.toLowerCase() === campOrRouterId.toLowerCase() || c.name.toLowerCase() === campOrRouterId.toLowerCase()
+      );
+      return matched?.campId || campOrRouterId;
+    });
+    setReportUserAllowedCamps(routerIds);
     setReportUserStatus(u.status !== undefined ? u.status : 1);
     setReportUserModalOpen(true);
   };
@@ -603,7 +634,6 @@ export function AdminClient() {
     try {
       const selectedCompany = allCompaniesList.find((c) => String(c.id) === reportUserCompanyId);
       const compId = selectedCompany ? selectedCompany.id : Number(reportUserCompanyId);
-      const compName = selectedCompany ? selectedCompany.name : null;
 
       await fetchMikrotikApi("/api/mikrotik/admin/report-users", {
         method: "POST",
@@ -614,7 +644,6 @@ export function AdminClient() {
           displayName: reportDisplayName.trim() || reportUsername.trim(),
           password: reportPassword.trim() || undefined,
           companyId: compId,
-          companyName: compName,
           allowedCampIds: reportUserAllowedCamps,
           status: reportUserStatus,
         }),
@@ -660,21 +689,14 @@ export function AdminClient() {
     );
   };
 
-  // Camps available strictly for the selected company in Report Viewer modal (filtered by companyId or name)
-  const availableCampsForReportCompany = Array.from(
-    new Set(
-      reportUserCompanyId && reportUserCompanyId.trim() !== ""
-        ? campsWithCompany
-            .filter((c) => {
-              const comp = allCompaniesList.find((co) => String(co.id) === reportUserCompanyId);
-              if (!comp) return false;
-              if (c.companyId && Number(c.companyId) === Number(comp.id)) return true;
-              return Boolean(c.companyName && c.companyName.toLowerCase() === comp.name.toLowerCase());
-            })
-            .map((c) => c.name)
-        : []
-    )
-  );
+  // Routers available strictly for the selected company in Report Viewer modal (filtered by companyId)
+  const availableRoutersForSelectedReportCompany = campsWithCompany.filter((c) => {
+    if (!reportUserCompanyId) return false;
+    const comp = allCompaniesList.find((co) => String(co.id) === reportUserCompanyId);
+    if (!comp) return false;
+    if (c.companyId && Number(c.companyId) === Number(comp.id)) return true;
+    return Boolean(c.companyName && c.companyName.toLowerCase() === comp.name.toLowerCase());
+  });
 
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
@@ -829,13 +851,14 @@ export function AdminClient() {
                   <TableHead>Allowed Camps / Permissions</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Password</TableHead>
+                  <TableHead>Created</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
                       No salespeople found. Click &quot;Add New Salesperson&quot; to create one.
                     </TableCell>
                   </TableRow>
@@ -850,11 +873,18 @@ export function AdminClient() {
                         {user.displayName || user.username}
                       </TableCell>
                       <TableCell>
-                        {user.companyName ? (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                            <Briefcase className="size-3" />
-                            {user.companyName}
-                          </span>
+                        {user.companyId || user.companyName ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                              <Briefcase className="size-3" />
+                              {user.companyName || `Company #${user.companyId}`}
+                            </span>
+                            {user.companyId && (
+                              <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                ID: {user.companyId}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">Global</span>
                         )}
@@ -862,15 +892,22 @@ export function AdminClient() {
                       <TableCell>
                         {user.allowedCamps && user.allowedCamps.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
-                            {Array.from(new Set(user.allowedCamps)).map((camp, idx) => (
-                              <span
-                                key={`${camp}-${idx}`}
-                                className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300"
-                              >
-                                <Building2 className="size-3" />
-                                {camp}
-                              </span>
-                            ))}
+                            {Array.from(new Set(user.allowedCamps)).map((campOrId, idx) => {
+                              const matchedRouter = campsWithCompany.find(
+                                (r) => r.campId?.toLowerCase() === campOrId.toLowerCase() || r.name.toLowerCase() === campOrId.toLowerCase()
+                              );
+                              const label = matchedRouter ? `${matchedRouter.name}` : campOrId;
+                              return (
+                                <span
+                                  key={`${campOrId}-${idx}`}
+                                  title={campOrId}
+                                  className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300"
+                                >
+                                  <Building2 className="size-3" />
+                                  {label}
+                                </span>
+                              );
+                            })}
                           </div>
                         ) : (
                           <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300">
@@ -886,6 +923,9 @@ export function AdminClient() {
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         ••••••••
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {user.createdAt ? user.createdAt.slice(0, 10) : "—"}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -1269,14 +1309,21 @@ export function AdminClient() {
                           </span>
                         ) : (
                           <div className="flex flex-wrap gap-1 max-w-xs">
-                            {u.allowedCampIds.map((camp) => (
-                              <span
-                                key={camp}
-                                className="text-[11px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border"
-                              >
-                                {camp}
-                              </span>
-                            ))}
+                            {u.allowedCampIds.map((campOrRouterId) => {
+                              const matched = campsWithCompany.find(
+                                (r) => r.campId?.toLowerCase() === campOrRouterId.toLowerCase() || r.name.toLowerCase() === campOrRouterId.toLowerCase()
+                              );
+                              const label = matched ? matched.name : campOrRouterId;
+                              return (
+                                <span
+                                  key={campOrRouterId}
+                                  title={campOrRouterId}
+                                  className="text-[11px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground border"
+                                >
+                                  {label}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </TableCell>
@@ -1375,23 +1422,22 @@ export function AdminClient() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="companySelect">Assigned Company</Label>
+                <Label htmlFor="companySelect">Assigned Company <span className="text-red-500">*</span></Label>
                 <Select
-                  value={newUserCompany || "NONE"}
+                  value={newUserCompanyId || ""}
                   onValueChange={(v: string | null) => {
-                    const selectedComp = !v || v === "NONE" ? "" : v;
-                    setNewUserCompany(selectedComp);
+                    const selectedCompId = !v || v === "NONE" ? "" : v;
+                    setNewUserCompanyId(selectedCompId);
                     setNewUserAllowedCamps([]); // Clear previously selected camps when company changes
                   }}
                 >
                   <SelectTrigger id="companySelect">
-                    <SelectValue placeholder="Select company" />
+                    <SelectValue placeholder="Select assigned company" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="NONE">-- No Company (Global) --</SelectItem>
-                    {companiesList.map((comp) => (
-                      <SelectItem key={comp} value={comp}>
-                        {comp}
+                    {allCompaniesList.map((comp) => (
+                      <SelectItem key={comp.id} value={String(comp.id)}>
+                        {comp.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1402,12 +1448,12 @@ export function AdminClient() {
               <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                    Authorized Camps ({newUserAllowedCamps.length} selected)
+                    Authorized Routers / Camps ({newUserAllowedCamps.length} selected)
                   </Label>
                   <div className="flex gap-2 text-xs">
                     <button
                       type="button"
-                      onClick={() => setNewUserAllowedCamps([...availableCampsForSelectedCompany])}
+                      onClick={() => setNewUserAllowedCamps(availableRoutersForSelectedCompany.map((r) => r.campId || r.name))}
                       className="text-blue-600 hover:underline font-medium"
                     >
                       Select All
@@ -1423,27 +1469,28 @@ export function AdminClient() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  The mobile app will restrict this sales agent to only view and recharge for these specific camps.
+                  The mobile app will restrict this sales agent to only view and recharge for these specific router hardware IDs.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-40 overflow-y-auto">
-                  {!newUserCompany ? (
+                  {!newUserCompanyId ? (
                     <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
-                      👈 Please select a company above to view and assign its camps.
+                      👈 Please select a company above to view and assign its routers.
                     </div>
-                  ) : availableCampsForSelectedCompany.length === 0 ? (
+                  ) : availableRoutersForSelectedCompany.length === 0 ? (
                     <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
-                      No camps are registered under <strong>{newUserCompany}</strong>.
+                      No routers are registered under this company.
                     </div>
                   ) : (
-                    availableCampsForSelectedCompany.map((camp) => {
+                    availableRoutersForSelectedCompany.map((router) => {
+                      const routerId = router.campId || router.name;
                       const isChecked = newUserAllowedCamps.some(
-                        (c) => c.toLowerCase() === camp.toLowerCase()
+                        (c) => c.toLowerCase() === routerId.toLowerCase() || c.toLowerCase() === router.name.toLowerCase()
                       );
                       return (
                         <div
-                          key={camp}
-                          onClick={() => toggleAllowedCamp(camp)}
+                          key={routerId}
+                          onClick={() => toggleAllowedRouter(routerId)}
                           className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer select-none transition-all ${
                             isChecked
                               ? "bg-blue-50 border-blue-300 text-blue-900 font-semibold dark:bg-blue-950/50 dark:border-blue-700 dark:text-blue-200"
@@ -1456,8 +1503,11 @@ export function AdminClient() {
                             onChange={() => {}} // Handled by parent div onClick
                             className="size-4 rounded border-gray-300 text-[#4A60D6] pointer-events-none"
                           />
-                          <Building2 className="size-3.5 text-muted-foreground" />
-                          <span className="truncate">{camp}</span>
+                          <Building2 className="size-3.5 text-muted-foreground flex-shrink-0" />
+                          <div className="flex flex-col min-w-0">
+                            <span className="truncate font-medium">{router.name}</span>
+                            <span className="text-[10px] text-muted-foreground truncate font-mono">{routerId}</span>
+                          </div>
                         </div>
                       );
                     })
@@ -1724,13 +1774,13 @@ export function AdminClient() {
               <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                    Allowed Camps ({reportUserAllowedCamps.length} of {availableCampsForReportCompany.length} selected)
+                    Allowed Routers / Camps ({reportUserAllowedCamps.length} of {availableRoutersForSelectedReportCompany.length} selected)
                   </Label>
                   <div className="flex gap-2 text-xs">
                     <button
                       type="button"
-                      disabled={!reportUserCompanyId || availableCampsForReportCompany.length === 0}
-                      onClick={() => setReportUserAllowedCamps([...availableCampsForReportCompany])}
+                      disabled={!reportUserCompanyId || availableRoutersForSelectedReportCompany.length === 0}
+                      onClick={() => setReportUserAllowedCamps(availableRoutersForSelectedReportCompany.map((r) => r.campId || r.name))}
                       className="text-indigo-600 hover:underline font-medium disabled:opacity-50"
                     >
                       Select All
@@ -1747,27 +1797,38 @@ export function AdminClient() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Select the specific camps this viewer is allowed to view in the Sales Report App. If none are selected, they will have access to <strong>0 camps</strong>.
+                  Select the specific router camps this viewer is allowed to view in the Sales Report App. If none are selected, they will have access to <strong>0 camps</strong>.
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-40 overflow-y-auto">
                   {!reportUserCompanyId ? (
                     <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
-                      👈 Please select a company above to view and assign its camps.
+                      👈 Please select a company above to view and assign its router camps.
                     </div>
-                  ) : availableCampsForReportCompany.length === 0 ? (
+                  ) : availableRoutersForSelectedReportCompany.length === 0 ? (
                     <div className="col-span-2 text-xs text-muted-foreground py-3 text-center border border-dashed rounded-md">
-                      No camps registered under this company yet.
+                      No routers registered under this company yet.
                     </div>
                   ) : (
-                    availableCampsForReportCompany.map((camp) => {
+                    availableRoutersForSelectedReportCompany.map((routerItem) => {
+                      const routerId = routerItem.campId || routerItem.name;
                       const isChecked = reportUserAllowedCamps.some(
-                        (c) => c.toLowerCase() === camp.toLowerCase()
+                        (c) => c.toLowerCase() === routerId.toLowerCase() || c.toLowerCase() === routerItem.name.toLowerCase()
                       );
                       return (
                         <div
-                          key={camp}
-                          onClick={() => toggleReportAllowedCamp(camp)}
+                          key={routerId}
+                          onClick={() => {
+                            setReportUserAllowedCamps((prev) => {
+                              const lower = routerId.toLowerCase();
+                              const exists = prev.some((c) => c.toLowerCase() === lower);
+                              if (exists) {
+                                return prev.filter((c) => c.toLowerCase() !== lower);
+                              } else {
+                                return [...prev, routerId];
+                              }
+                            });
+                          }}
                           className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer select-none transition-all ${
                             isChecked
                               ? "bg-indigo-50 border-indigo-300 text-indigo-900 font-semibold dark:bg-indigo-950/50 dark:border-indigo-700 dark:text-indigo-200"
@@ -1781,7 +1842,14 @@ export function AdminClient() {
                             className="size-4 rounded border-gray-300 text-indigo-600 pointer-events-none"
                           />
                           <Building2 className="size-3.5 text-muted-foreground" />
-                          <span className="truncate">{camp}</span>
+                          <div className="flex flex-col min-w-0">
+                            <span className="truncate">{routerItem.name}</span>
+                            {routerItem.campId && (
+                              <span className="text-[10px] text-muted-foreground font-mono truncate">
+                                {routerItem.campId}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       );
                     })

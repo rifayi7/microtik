@@ -24,16 +24,18 @@ export async function GET(request: Request) {
     let targetUsername = salespersonParam && salespersonParam.trim() !== "" && salespersonParam.trim() !== "Unknown" ? salespersonParam.trim() : null;
     let targetTimezone = "Asia/Dubai";
 
+    let userAllowedCamps: string[] = [];
     // Lookup user details from database to resolve company and company timezone
     if (targetUserId || targetUsername || authUser?.userId || authUser?.sub) {
       const lookupId = targetUserId || authUser?.userId || -1;
       const lookupName = targetUsername || authUser?.sub || "";
       const spRes = await database.execute({
         sql: `
-          SELECT sp.id, sp.username, sp.display_name, sp.camp_name, sp.company_name, sp.allowed_camps,
+          SELECT sp.id, sp.username, sp.display_name, sp.company_id, sp.allowed_camps,
+                 c.name as resolved_company_name,
                  COALESCE(c.timezone, 'Asia/Dubai') as company_timezone
           FROM sales_persons sp
-          LEFT JOIN companies c ON (sp.company_id IS NOT NULL AND c.id = sp.company_id) OR (sp.company_name IS NOT NULL AND LOWER(c.name) = LOWER(sp.company_name))
+          LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
           WHERE sp.id = ? OR sp.username = ? OR sp.display_name = ?
           LIMIT 1
         `,
@@ -43,9 +45,19 @@ export async function GET(request: Request) {
         const row = spRes.rows[0];
         targetUserId = Number(row.id);
         if (!targetUsername) targetUsername = String(row.username);
-        if (row.company_name && !companyParam) companyParam = String(row.company_name);
+        if (row.resolved_company_name && !companyParam) companyParam = String(row.resolved_company_name);
         if (row.company_timezone) targetTimezone = String(row.company_timezone);
+        if (row.allowed_camps) {
+          try {
+            const parsed = JSON.parse(String(row.allowed_camps));
+            if (Array.isArray(parsed)) userAllowedCamps = parsed.map((c) => String(c).toLowerCase());
+          } catch {}
+        }
       }
+    }
+
+    if (userAllowedCamps.length === 0 && authUser?.allowedCamps && authUser.allowedCamps.length > 0) {
+      userAllowedCamps = authUser.allowedCamps.map((c) => c.toLowerCase());
     }
 
     if (companyParam && companyParam.trim() && targetTimezone === "Asia/Dubai") {
@@ -103,18 +115,18 @@ export async function GET(request: Request) {
     const usedAtDateExpr = `date(used_at, '${tzModifier}')`;
     const usedAtMonthExpr = `strftime('%Y-%m', used_at, '${tzModifier}')`;
 
-    if (isFilteredBySalesperson) {
-      const targetIdVal = targetUserId ? Number(targetUserId) : -1;
-      const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
+    const targetIdVal = targetUserId ? Number(targetUserId) : -1;
+    const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
 
+    if (isFilteredBySalesperson) {
       const userResult = await database.execute({
         sql: `
           SELECT 
-            COUNT(*) as totalSalesCount,
+            SUM(CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END) as totalSalesCount,
             SUM(COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue,
             SUM(CASE 
               WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN
-                COALESCE(vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
+                CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END
               ELSE 0 
             END) as todaySalesCount,
             SUM(CASE 
@@ -122,14 +134,17 @@ export async function GET(request: Request) {
                 COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
               ELSE 0 
             END) as todayRevenue,
-            SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySalesCount,
+            SUM(CASE 
+              WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
+                CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END
+              ELSE 0 
+            END) as monthlySalesCount,
             SUM(CASE 
               WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
                 COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
               ELSE 0 
             END) as monthlyRevenue
           FROM vouchers v
-          LEFT JOIN validity_profiles vp ON (vp.name = v.validity_days || '-Days' OR vp.name = v.validity_days || '-D' OR vp.name = CAST(v.validity_days AS TEXT))
           WHERE v.status = 'redeemed' AND (
             (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
             OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
@@ -151,44 +166,18 @@ export async function GET(request: Request) {
       }
     }
 
-    // Fetch latest live allowed camps and company for this user from database
-    let userAllowedCamps: string[] = [];
-    if (targetUserId || targetUsername || authUser?.userId || authUser?.sub) {
-      const lookupId = targetUserId || authUser?.userId || -1;
-      const lookupName = targetUsername || authUser?.sub || "";
-      const spRes = await database.execute({
-        sql: "SELECT camp_name, company_name, allowed_camps FROM sales_persons WHERE id = ? OR username = ? OR display_name = ?",
-        args: [lookupId, lookupName, lookupName],
-      });
-      if (spRes.rows.length > 0) {
-        const spRow = spRes.rows[0];
-        if (spRow.company_name && !companyParam) {
-          companyParam = String(spRow.company_name);
-        }
-        if (spRow.allowed_camps) {
-          try {
-            const parsed = JSON.parse(String(spRow.allowed_camps));
-            if (Array.isArray(parsed)) userAllowedCamps = parsed.map((c) => String(c).toLowerCase());
-          } catch {}
-        } else if (spRow.camp_name && spRow.camp_name !== "All Camps") {
-          userAllowedCamps = [String(spRow.camp_name).toLowerCase()];
-        }
-      }
-    }
-
-    if (userAllowedCamps.length === 0 && authUser?.allowedCamps && authUser.allowedCamps.length > 0) {
-      userAllowedCamps = authUser.allowedCamps.map((c) => c.toLowerCase());
-    }
-
-    const targetIdVal = targetUserId ? Number(targetUserId) : -1;
-    const targetUserVal = targetUsername ? targetUsername.trim() : "UNKNOWN_USER";
-
     // 2. Get sales counts and revenue amounts per router/camp
-    let effectiveCampFilters = companyCampNames;
-    if (userAllowedCamps.length > 0) {
+    let effectiveCampFilters: string[] = [];
+    
+    if (isFilteredBySalesperson) {
+      // Salesperson MUST only see explicitly allowed routers/camps (or empty if none assigned)
+      effectiveCampFilters = userAllowedCamps;
+    } else if (userAllowedCamps.length > 0) {
       effectiveCampFilters = companyCampNames.length > 0
         ? companyCampNames.filter((c) => userAllowedCamps.includes(c))
         : userAllowedCamps;
+    } else {
+      effectiveCampFilters = companyCampNames;
     }
 
     let routerFilterClause = "";
@@ -199,22 +188,11 @@ export async function GET(request: Request) {
         ? `(LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')}) OR LOWER(r.id) IN (${effectiveCampFilters.map(() => '?').join(',')}))`
         : "1=0";
       
-      // Allow currently assigned camps OR any router where the salesperson had redeemed vouchers
-      routerFilterClause = `WHERE (${campCondition} OR r.id IN (
-        SELECT router_id FROM vouchers 
-        WHERE status = 'redeemed' AND (
-          (sales_person_id IS NOT NULL AND sales_person_id = ?)
-          OR (sold_by IS NOT NULL AND (sold_by = ? OR sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
-        )
-      ))`;
-      routerFilterArgs = [
-        ...effectiveCampFilters,
-        ...effectiveCampFilters,
-        targetIdVal,
-        targetUserVal,
-        targetIdVal,
-        targetUserVal,
-      ];
+      // Strict: Only include explicitly allowed camps for the salesperson
+      routerFilterClause = `WHERE ${campCondition}`;
+      routerFilterArgs = effectiveCampFilters.length > 0 
+        ? [...effectiveCampFilters, ...effectiveCampFilters] 
+        : [];
     } else {
       routerFilterClause = effectiveCampFilters.length > 0
         ? `WHERE (LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${effectiveCampFilters.map(() => '?').join(',')}) OR LOWER(r.id) IN (${effectiveCampFilters.map(() => '?').join(',')}))`
@@ -239,7 +217,16 @@ export async function GET(request: Request) {
             ELSE 0 
           END) as todaySaleCount,
           SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
-          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySaleCount,
+          SUM(CASE 
+            WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
+              CASE 
+                WHEN v.validity_days = 30 THEN 1.0
+                WHEN v.validity_days = 15 THEN 0.5
+                WHEN v.validity_days = 7 THEN 0.25
+                ELSE CAST(v.validity_days AS REAL) / 30.0
+              END
+            ELSE 0 
+          END) as monthlySaleCount,
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
           SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
@@ -266,7 +253,16 @@ export async function GET(request: Request) {
             ELSE 0 
           END) as todaySaleCount,
           SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
-          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 1 ELSE 0 END) as monthlySaleCount,
+          SUM(CASE 
+            WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
+              CASE 
+                WHEN v.validity_days = 30 THEN 1.0
+                WHEN v.validity_days = 15 THEN 0.5
+                WHEN v.validity_days = 7 THEN 0.25
+                ELSE CAST(v.validity_days AS REAL) / 30.0
+              END
+            ELSE 0 
+          END) as monthlySaleCount,
           SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
           SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r

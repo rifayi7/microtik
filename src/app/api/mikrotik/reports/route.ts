@@ -60,61 +60,34 @@ async function handleRequest(request: Request) {
     }
 
     let allowedCamps: string[] = authUser?.allowedCamps || [];
-    let allowedRouterIds: string[] = authUser?.allowedRouterIds || [];
 
-    // If allowedRouterIds or allowedCamps not in JWT, check from database for the salesperson
-    if ((allowedRouterIds.length === 0 && allowedCamps.length === 0) && (salesPersonId || salesperson || authUser?.userId || authUser?.sub)) {
+    // If allowedCamps not in JWT, check from database for the salesperson
+    if (allowedCamps.length === 0 && (salesPersonId || salesperson || authUser?.userId || authUser?.sub)) {
       const spRes = await db.execute({
-        sql: "SELECT allowed_camps, allowed_router_ids, camp_name FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
+        sql: "SELECT allowed_camps FROM sales_persons WHERE id = ? OR username = ? OR display_name = ? LIMIT 1",
         args: [salesPersonId || authUser?.userId || -1, salesperson || authUser?.sub || "", salesperson || authUser?.sub || ""],
       });
       if (spRes.rows.length > 0) {
         const spRow = spRes.rows[0];
-        if (spRow.allowed_router_ids) {
-          try {
-            allowedRouterIds = JSON.parse(String(spRow.allowed_router_ids));
-          } catch {
-            allowedRouterIds = [String(spRow.allowed_router_ids)];
-          }
-        }
         if (spRow.allowed_camps) {
           try {
             allowedCamps = JSON.parse(String(spRow.allowed_camps));
           } catch {
             allowedCamps = [String(spRow.allowed_camps)];
           }
-        } else if (spRow.camp_name && spRow.camp_name !== "All Camps") {
-          allowedCamps = [String(spRow.camp_name)];
         }
       }
     }
 
     // Filter by allowed router IDs / camps if salesperson has restricted permissions
     if (authUser && authUser.role !== "superadmin") {
-      const hasSpecificRouters = allowedRouterIds.length > 0;
-      const hasSpecificCamps = allowedCamps.length > 0;
-
-      if (hasSpecificRouters || hasSpecificCamps) {
-        const clauses: string[] = [];
-        const campArgs: any[] = [];
-
-        if (hasSpecificRouters) {
-          clauses.push(`v.router_id IN (${allowedRouterIds.map(() => '?').join(',')})`);
-          campArgs.push(...allowedRouterIds);
-        }
-        if (hasSpecificCamps) {
-          clauses.push(`v.router_id IN (
-            SELECT r.id FROM routers r 
-            WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${allowedCamps.map(() => '?').join(',')})
-               OR LOWER(r.id) IN (${allowedCamps.map(() => '?').join(',')})
-          )`);
-          campArgs.push(...allowedCamps.map((c) => c.toLowerCase()), ...allowedCamps.map((c) => c.toLowerCase()));
-        }
-
-        if (clauses.length > 0) {
-          conditions.push(`(${clauses.join(" OR ")})`);
-          args.push(...campArgs);
-        }
+      if (allowedCamps.length > 0) {
+        conditions.push(`v.router_id IN (
+          SELECT r.id FROM routers r 
+          WHERE LOWER(COALESCE(r.camp, r.sessionName, '')) IN (${allowedCamps.map(() => '?').join(',')})
+             OR LOWER(r.id) IN (${allowedCamps.map(() => '?').join(',')})
+        )`);
+        args.push(...allowedCamps.map((c) => c.toLowerCase()), ...allowedCamps.map((c) => c.toLowerCase()));
       }
     }
 

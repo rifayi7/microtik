@@ -46,12 +46,10 @@ export async function GET() {
 
     // 3. Get distinct companies directly from companies table
     const compResult = await database.execute(`
-      SELECT DISTINCT name FROM companies WHERE name IS NOT NULL AND name != ''
+      SELECT id, name FROM companies WHERE name IS NOT NULL AND name != '' ORDER BY name ASC
     `);
-    const companies = Array.from(new Set(compResult.rows.map((r) => String(r.name))));
-    if (companies.length === 0) {
-      companies.push("apricom", "test-company");
-    }
+    const companies = compResult.rows.map((r) => String(r.name));
+    const companyObjects = compResult.rows.map((r) => ({ id: Number(r.id), name: String(r.name) }));
 
     // 4. Get distinct validity profile names
     const vpResult = await database.execute("SELECT name FROM validity_profiles");
@@ -63,6 +61,7 @@ export async function GET() {
       registeredCamps,
       campsWithCompany,
       companies,
+      companyObjects,
       validityProfiles: validityProfiles.length > 0 ? validityProfiles : ["7-Days", "15-Days", "30-Days"],
     });
   } catch (error) {

@@ -169,10 +169,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
         }
 
         try {
-          const spList = await database.execute("SELECT id, camp_name, allowed_camps FROM sales_persons");
+          const spList = await database.execute("SELECT id, allowed_camps FROM sales_persons");
           for (const sp of spList.rows) {
             let changed = false;
-            let currentPrimary = sp.camp_name ? String(sp.camp_name) : "";
             let currentAllowed: string[] = [];
             if (sp.allowed_camps) {
               try {
@@ -180,11 +179,6 @@ export async function PUT(request: Request, { params }: RouteParams) {
               } catch {
                 currentAllowed = [String(sp.allowed_camps)];
               }
-            }
-
-            if (currentPrimary.toLowerCase() === oldCamp.toLowerCase()) {
-              currentPrimary = newCamp;
-              changed = true;
             }
 
             const updatedAllowed = currentAllowed.map((c) => {
@@ -197,8 +191,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
             if (changed) {
               await database.execute({
-                sql: "UPDATE sales_persons SET camp_name = ?, allowed_camps = ? WHERE id = ?",
-                args: [currentPrimary, JSON.stringify(updatedAllowed), Number(sp.id)],
+                sql: "UPDATE sales_persons SET allowed_camps = ? WHERE id = ?",
+                args: [JSON.stringify(updatedAllowed), Number(sp.id)],
               });
             }
           }
