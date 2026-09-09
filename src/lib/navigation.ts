@@ -26,7 +26,7 @@ export const setupNavigation: NavItem[] = [
 export const connectedNavigation: NavItem[] = [
   { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { title: "Hotspot", href: "/hotspot/users", icon: Wifi },
-  { title: "Log", href: "/hotspot/logs", icon: ScrollText },
+  { title: "Log", href: "/logs", icon: ScrollText },
   { title: "Report", href: "/reports", icon: ScrollText },
   { title: "Admin Hub", href: "/admin", icon: ShieldCheck },
   { title: "Settings", href: "/settings/routers", icon: Settings },

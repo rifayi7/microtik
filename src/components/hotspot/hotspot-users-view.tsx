@@ -61,7 +61,7 @@ export function HotspotUsersView() {
   // Form states
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [profile, setProfile] = useState("default");
+  const [profile, setProfile] = useState("15-Days");
   const [comment, setComment] = useState("");
 
   // Generate states
@@ -71,7 +71,7 @@ export function HotspotUsersView() {
   const [genUserMode, setGenUserMode] = useState("username_equals_password");
   const [genPrefix, setGenPrefix] = useState("");
   const [genCharacters, setGenCharacters] = useState("1234");
-  const [genProfile, setGenProfile] = useState("default");
+  const [genProfile, setGenProfile] = useState("15-Days");
   const [genComment, setGenComment] = useState("");
   const [generating, setGenerating] = useState(false);
 
@@ -83,8 +83,18 @@ export function HotspotUsersView() {
         activeRouter
       );
       setProfiles(payload.profiles);
+      // Automatically choose 15-Days if available, or first 15-day variant, else default
+      const match = payload.profiles.find((p) => /15\s*[-_]?\s*day/i.test(p.name))?.name;
+      if (match) {
+        setProfile(match);
+        setGenProfile(match);
+      } else if (payload.profiles.length > 0) {
+        const fallback = payload.profiles[0].name;
+        setProfile((prev) => payload.profiles.some((p) => p.name === prev) ? prev : fallback);
+        setGenProfile((prev) => payload.profiles.some((p) => p.name === prev) ? prev : fallback);
+      }
     } catch {
-      setProfiles([{ name: "default" }]);
+      setProfiles([{ name: "15-Days" }, { name: "default" }]);
     }
   }, [activeRouter]);
 
@@ -138,7 +148,8 @@ export function HotspotUsersView() {
       toast.success(`User "${username}" created successfully`);
       setUsername("");
       setPassword("");
-      setProfile("default");
+      const defaultMatch = profiles.find((p) => /15\s*[-_]?\s*day/i.test(p.name))?.name || "15-Days";
+      setProfile(defaultMatch);
       setComment("");
       setAddOpen(false);
       void load();
