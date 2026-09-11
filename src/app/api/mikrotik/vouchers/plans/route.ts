@@ -22,32 +22,45 @@ export async function POST(request: Request) {
 
     // Permission enforcement for salesperson
     if (authResult.user?.role === "salesperson" && authResult.user.userId) {
+      let allowed: string[] = [];
       const spRes = await db.execute({
         sql: "SELECT allowed_camps FROM sales_persons WHERE id = ? LIMIT 1",
         args: [authResult.user.userId],
       });
       if (spRes.rows.length > 0 && spRes.rows[0].allowed_camps) {
         try {
-          const allowed: string[] = JSON.parse(String(spRes.rows[0].allowed_camps));
-          if (Array.isArray(allowed) && allowed.length > 0) {
-            const allowedLower = allowed.map((c) => c.toLowerCase());
-            const reqRouterId = (config.id || "").toLowerCase();
-            const reqSession = (config.sessionName || "").toLowerCase();
-            const reqCamp = (config.camp || "").toLowerCase();
+          const parsed = JSON.parse(String(spRes.rows[0].allowed_camps));
+          if (Array.isArray(parsed)) allowed = parsed;
+        } catch {
+          allowed = [String(spRes.rows[0].allowed_camps)];
+        }
+      } else if (authResult.user.allowedCamps && Array.isArray(authResult.user.allowedCamps)) {
+        allowed = authResult.user.allowedCamps;
+      }
 
-            const isAllowed =
-              allowedLower.includes(reqRouterId) ||
-              (reqSession && allowedLower.includes(reqSession)) ||
-              (reqCamp && allowedLower.includes(reqCamp));
+      // If salesperson has 0 allowed camps (null or empty array), they have NO access to any camp
+      if (allowed.length === 0) {
+        return NextResponse.json(
+          { error: "Access Denied: No camps assigned to your account. Please contact your administrator." },
+          { status: 403 }
+        );
+      }
 
-            if (!isAllowed) {
-              return NextResponse.json(
-                { error: "Access Denied: You do not have permission to view plans for this camp." },
-                { status: 403 }
-              );
-            }
-          }
-        } catch {}
+      const allowedLower = allowed.map((c) => c.toLowerCase());
+      const reqRouterId = (config.id || "").toLowerCase();
+      const reqSession = (config.sessionName || "").toLowerCase();
+      const reqCamp = (config.camp || "").toLowerCase();
+
+      const isAllowed =
+        allowedLower.includes(reqRouterId) ||
+        (reqSession && allowedLower.includes(reqSession)) ||
+        (reqCamp && allowedLower.includes(reqCamp));
+
+      if (!isAllowed) {
+        return NextResponse.json(
+          { error: "Access Denied: You do not have permission to view plans for this camp router." },
+          { status: 403 }
+        );
       }
     }
 

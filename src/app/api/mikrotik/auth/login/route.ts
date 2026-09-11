@@ -132,7 +132,7 @@ export async function POST(request: Request) {
       username: String(row.username),
       displayName: String(row.display_name || row.username),
       role: String(row.role || "salesperson"),
-      campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "All Camps")),
+      campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps[0] : "No Camps Assigned")),
       companyId: finalCompanyId,
       companyName: finalCompanyName,
       companyTimezone: finalCompanyTimezone,

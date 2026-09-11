@@ -76,29 +76,38 @@ export async function POST(request: Request) {
           let allowedCamps: string[] = [];
           if (compRow.allowed_camps) {
             try {
-              allowedCamps = JSON.parse(String(compRow.allowed_camps));
+              const parsed = JSON.parse(String(compRow.allowed_camps));
+              if (Array.isArray(parsed)) allowedCamps = parsed;
             } catch {
               allowedCamps = [String(compRow.allowed_camps)];
             }
+          } else if (authUser?.allowedCamps && Array.isArray(authUser.allowedCamps)) {
+            allowedCamps = authUser.allowedCamps;
           }
 
-          if (allowedCamps.length > 0) {
-            const allowedLower = allowedCamps.map((c) => c.toLowerCase());
-            const reqRouterId = (config.id || "").toLowerCase();
-            const reqSession = (config.sessionName || "").toLowerCase();
-            const reqCamp = (config.camp || "").toLowerCase();
+          // If salesperson has 0 allowed camps, they are strictly prohibited from selling vouchers anywhere
+          if (allowedCamps.length === 0) {
+            return NextResponse.json(
+              { error: "Access Denied: No camps assigned to your account. You cannot sell vouchers." },
+              { status: 403 }
+            );
+          }
 
-            const isAllowed =
-              allowedLower.includes(reqRouterId) ||
-              (reqSession && allowedLower.includes(reqSession)) ||
-              (reqCamp && allowedLower.includes(reqCamp));
+          const allowedLower = allowedCamps.map((c) => c.toLowerCase());
+          const reqRouterId = (config.id || "").toLowerCase();
+          const reqSession = (config.sessionName || "").toLowerCase();
+          const reqCamp = (config.camp || "").toLowerCase();
 
-            if (!isAllowed) {
-              return NextResponse.json(
-                { error: "Access Denied: You do not have permission to sell vouchers for this camp router." },
-                { status: 403 }
-              );
-            }
+          const isAllowed =
+            allowedLower.includes(reqRouterId) ||
+            (reqSession && allowedLower.includes(reqSession)) ||
+            (reqCamp && allowedLower.includes(reqCamp));
+
+          if (!isAllowed) {
+            return NextResponse.json(
+              { error: "Access Denied: You do not have permission to sell vouchers for this camp router." },
+              { status: 403 }
+            );
           }
         }
       } catch (err) {

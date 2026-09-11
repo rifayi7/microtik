@@ -55,7 +55,7 @@ export async function GET(request: Request) {
         displayName: String(row.display_name || row.username),
         password: "••••••••",
         role: String(row.role || "salesperson"),
-        campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps.join(", ") : "All Camps")),
+        campName: String(row.camp_name || (allowedCamps.length > 0 ? allowedCamps.join(", ") : "No Camps Assigned (0)")),
         companyId: finalCompanyId,
         companyName: finalCompanyName,
         allowedCamps,
