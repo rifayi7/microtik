@@ -397,7 +397,9 @@ export function AddRouterDialog({ open, onOpenChange }: AddRouterDialogProps) {
                     </Label>
                     <Select value={companyId} onValueChange={(val) => val && setCompanyId(val)}>
                       <SelectTrigger id="companySelect">
-                        <SelectValue placeholder="Select Company (Required)" />
+                        <SelectValue placeholder="Select Company (Required)">
+                          {companies.find((c) => String(c.id) === companyId)?.name || "Select Company"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {companies.map((c) => (
