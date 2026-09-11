@@ -169,11 +169,11 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
      COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
      ```
    - On the **Sales Report Web Dashboard (`microtik-sales-report`)**, the weighted calculation is applied across:
-     - **Outstanding Balance**: `TOTAL SALES`
-     - **Today's Sale Card**: `TOTAL COUNT` and individual camp sales badges
-     - **Company - Monthly Sales Analysis**: `SALES COUNT` & `PREV COUNT`
-     - **Today Camps Sales Carousel**: `Vouchers Count`
-     - **This Month Sales Card**: `COUNT`
-     - **Last Month Sale Card**: `SALE COUNT`
-   - Numeric values are cleanly formatted using `formatCount` (rendering whole units like `1` or `2` without decimals, and fractional units like `0.5` or `1.5` with 1 decimal).
-
+      - **Outstanding Balance**: `TOTAL SALES` (representing the all-time full sold unit count across all authorized camps for the user) and `AED` (the all-time full sold revenue across those authorized camps, independent of temporary date range filters).
+      - **Today's Sale Card**: `TOTAL COUNT` and individual camp sales badges
+      - **Company - Monthly Sales Analysis**: `SALES COUNT` & `PREV COUNT`
+      - **Today Camps Sales Carousel**: `Vouchers Count`
+      - **This Month Sales Card**: `COUNT`
+      - **Last Month Sale Card**: `SALE COUNT`
+    - Numeric values are cleanly formatted using `formatCount` (rendering whole units like `1` or `2` without decimals, and fractional units like `0.5` or `1.5` with 1 decimal).
+    - **Revenue Price Fallback**: In all summary calculations, voucher revenue evaluates `COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)` so vouchers without an explicit `price_charged` accurately derive their value from `camp_validity_pricing` or validity standards.
