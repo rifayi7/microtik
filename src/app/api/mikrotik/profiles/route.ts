@@ -25,8 +25,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Router credentials required" }, { status: 400 });
     }
 
-    const profiles = await fetchUserProfilesForRouter(config);
-    return NextResponse.json({ profiles, configured: true });
+    const campName = config.camp ?? config.sessionName;
+    const [hardwareProfiles, pricingRes] = await Promise.all([
+      fetchUserProfilesForRouter(config).catch(() => []),
+      db.execute({
+        sql: `
+          SELECT validity, price, unit 
+          FROM camp_validity_pricing 
+          WHERE (router_id = ? OR router_id = ? OR router_id = ?) AND status = 1
+          ORDER BY validity ASC
+        `,
+        args: [config.id, config.sessionName, campName],
+      }).catch(() => ({ rows: [] }))
+    ]);
+
+    const campPlans = pricingRes.rows.map((r) => ({
+      validity: Number(r.validity),
+      name: `${r.validity}-Days`,
+      price: Number(r.price),
+      unit: Number(r.unit ?? (Number(r.validity) === 15 ? 0.5 : 1.0)),
+    }));
+
+    return NextResponse.json({ 
+      profiles: hardwareProfiles, 
+      campPlans, 
+      configured: true 
+    });
   } catch (error) {
     return mikrotikErrorResponse(error, "Failed to load user profiles");
   }

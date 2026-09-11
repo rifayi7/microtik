@@ -65,7 +65,8 @@ export async function GET(request: Request) {
       }
     }
 
-    if (userAllowedCamps.length === 0 && authUser?.allowedCamps && authUser.allowedCamps.length > 0) {
+    // Only fallback to JWT allowedCamps if no user record was matched in DB
+    if (!targetUserId && !targetUsername && authUser?.allowedCamps && authUser.allowedCamps.length > 0) {
       userAllowedCamps = authUser.allowedCamps.map((c) => c.toLowerCase());
     }
 
@@ -131,29 +132,31 @@ export async function GET(request: Request) {
       const userResult = await database.execute({
         sql: `
           SELECT 
-            SUM(CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END) as totalSalesCount,
-            SUM(COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue,
+            SUM(COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)) as totalSalesCount,
+            SUM(COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)) as totalRevenue,
             SUM(CASE 
               WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN
-                CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END
+                COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
               ELSE 0 
             END) as todaySalesCount,
             SUM(CASE 
               WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN 
-                COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
+                COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
               ELSE 0 
             END) as todayRevenue,
             SUM(CASE 
               WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
-                CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END
+                COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
               ELSE 0 
             END) as monthlySalesCount,
             SUM(CASE 
               WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
-                COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
+                COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END)
               ELSE 0 
             END) as monthlyRevenue
           FROM vouchers v
+          LEFT JOIN camp_validity_pricing cvp ON (cvp.router_id = v.router_id) AND cvp.validity = v.validity_days
+          LEFT JOIN validity_profiles vp ON (vp.name = v.validity_days || '-Days' OR vp.name = v.validity_days || '-D' OR CAST(vp.name AS INTEGER) = v.validity_days)
           WHERE v.status = 'redeemed' AND (
             (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
             OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
@@ -181,6 +184,20 @@ export async function GET(request: Request) {
     if (isFilteredBySalesperson) {
       // Salesperson MUST only see explicitly allowed routers/camps (or empty if none assigned)
       effectiveCampFilters = userAllowedCamps;
+      if (effectiveCampFilters.length === 0) {
+        // Salesperson has 0 allowed camps assigned - immediately return empty list and zero stats
+        return NextResponse.json({
+          success: true,
+          userStats,
+          overallStats: {
+            totalOutstanding: 0,
+            totalSalesRevenue: 0,
+            todayTotalSaleCount: 0,
+            todayTotalSaleRevenue: 0,
+          },
+          data: [],
+        });
+      }
     } else if (userAllowedCamps.length > 0) {
       effectiveCampFilters = companyCampNames.length > 0
         ? companyCampNames.filter((c) => userAllowedCamps.includes(c))
@@ -217,32 +234,24 @@ export async function GET(request: Request) {
           r.id as routerId,
           SUM(CASE 
             WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN
-              CASE 
-                WHEN v.validity_days = 30 THEN 1.0
-                WHEN v.validity_days = 15 THEN 0.5
-                WHEN v.validity_days = 7 THEN 0.25
-                ELSE CAST(v.validity_days AS REAL) / 30.0
-              END
+              COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
             ELSE 0 
           END) as todaySaleCount,
-          SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
+          SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
           SUM(CASE 
             WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
-              CASE 
-                WHEN v.validity_days = 30 THEN 1.0
-                WHEN v.validity_days = 15 THEN 0.5
-                WHEN v.validity_days = 7 THEN 0.25
-                ELSE CAST(v.validity_days AS REAL) / 30.0
-              END
+              COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
             ELSE 0 
           END) as monthlySaleCount,
-          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
-          SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
+          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
+          SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
         LEFT JOIN vouchers v ON (v.router_id = r.id OR v.router_id = r.sessionName) AND v.status = 'redeemed' AND (
           (v.sales_person_id IS NOT NULL AND v.sales_person_id = ?)
           OR (v.sold_by IS NOT NULL AND (v.sold_by = ? OR v.sold_by IN (SELECT username FROM sales_persons WHERE id = ? OR username = ?)))
         )
+        LEFT JOIN camp_validity_pricing cvp ON cvp.router_id = r.id AND cvp.validity = v.validity_days
+        LEFT JOIN validity_profiles vp ON (vp.name = v.validity_days || '-Days' OR vp.name = v.validity_days || '-D' OR CAST(vp.name AS INTEGER) = v.validity_days)
         ${routerFilterClause}
         GROUP BY r.id
       `
@@ -253,29 +262,21 @@ export async function GET(request: Request) {
           r.id as routerId,
           SUM(CASE 
             WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN
-              CASE 
-                WHEN v.validity_days = 30 THEN 1.0
-                WHEN v.validity_days = 15 THEN 0.5
-                WHEN v.validity_days = 7 THEN 0.25
-                ELSE CAST(v.validity_days AS REAL) / 30.0
-              END
+              COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
             ELSE 0 
           END) as todaySaleCount,
-          SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
+          SUM(CASE WHEN (${usedAtDateExpr} = ${todayExpr} OR date(v.used_at) = date('now') OR date(v.used_at) = date('now', 'localtime')) THEN COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as todaySaleAmount,
           SUM(CASE 
             WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN 
-              CASE 
-                WHEN v.validity_days = 30 THEN 1.0
-                WHEN v.validity_days = 15 THEN 0.5
-                WHEN v.validity_days = 7 THEN 0.25
-                ELSE CAST(v.validity_days AS REAL) / 30.0
-              END
+              COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
             ELSE 0 
           END) as monthlySaleCount,
-          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
-          SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
+          SUM(CASE WHEN (${usedAtMonthExpr} = ${monthExpr} OR strftime('%Y-%m', v.used_at) = strftime('%Y-%m', 'now')) THEN COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as monthlySaleAmount,
+          SUM(CASE WHEN v.voucher_code IS NOT NULL THEN COALESCE(v.price_charged, cvp.price, CASE WHEN v.validity_days = 30 THEN 32 ELSE 16 END) ELSE 0 END) as totalRevenue
         FROM routers r
         LEFT JOIN vouchers v ON (v.router_id = r.id OR v.router_id = r.sessionName) AND v.status = 'redeemed'
+        LEFT JOIN camp_validity_pricing cvp ON cvp.router_id = r.id AND cvp.validity = v.validity_days
+        LEFT JOIN validity_profiles vp ON (vp.name = v.validity_days || '-Days' OR vp.name = v.validity_days || '-D' OR CAST(vp.name AS INTEGER) = v.validity_days)
         ${routerFilterClause}
         GROUP BY r.id
       `;

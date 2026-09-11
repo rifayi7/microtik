@@ -113,6 +113,14 @@ export async function initializeDB() {
     // Column already exists
   }
 
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN status INTEGER DEFAULT 1;");
+  } catch (e) {}
+
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN suspended_reason TEXT;");
+  } catch (e) {}
+
   // Create company_admins table for company tenant accounts
   await db.execute(`
     CREATE TABLE IF NOT EXISTS company_admins (
@@ -215,12 +223,13 @@ export async function initializeDB() {
   await db.execute(`
     CREATE TABLE IF NOT EXISTS camp_validity_pricing (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      camp_name TEXT NOT NULL,
-      validity_name TEXT NOT NULL,
-      company_name TEXT,
+      company_id INTEGER REFERENCES companies(id),
+      router_id TEXT REFERENCES routers(id),
+      validity INTEGER NOT NULL,
       price REAL NOT NULL,
+      unit REAL NOT NULL DEFAULT 1.0,
       status INTEGER DEFAULT 1,
-      UNIQUE(camp_name, validity_name)
+      UNIQUE(router_id, validity)
     );
   `);
 

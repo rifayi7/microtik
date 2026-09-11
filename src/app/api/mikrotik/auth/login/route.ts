@@ -24,6 +24,8 @@ export async function POST(request: Request) {
         SELECT 
           sp.id, sp.username, sp.password, sp.display_name, sp.role,
           sp.company_id, sp.allowed_camps,
+          COALESCE(sp.status, 1) as salesperson_status,
+          sp.suspended_reason as salesperson_suspended_reason,
           c.id as resolved_company_id, c.name as resolved_company_name,
           COALESCE(c.timezone, 'Asia/Dubai') as company_timezone,
           COALESCE(c.status, 1) as company_status,
@@ -66,8 +68,8 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
           success: true,
-          user,
           token,
+          user,
         });
       }
 
@@ -87,6 +89,15 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: "Invalid operator credentials" },
         { status: 401 }
+      );
+    }
+
+    // Check if salesperson account itself is paused / suspended
+    if (row.salesperson_status !== undefined && Number(row.salesperson_status) === 0) {
+      const reason = row.salesperson_suspended_reason ? String(row.salesperson_suspended_reason) : "Your salesperson account has been paused by the administrator.";
+      return NextResponse.json(
+        { success: false, error: reason, isSuspended: true },
+        { status: 403 }
       );
     }
 

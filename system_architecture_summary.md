@@ -150,3 +150,30 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
    - **Sales & Accounting Portal**:
      - Summary metrics, comparison cards, and voucher sales lists evaluate to `1 = 0`, returning `0 sales`, `0 revenue`, and `[]` empty camp lists.
 
+---
+
+## 🏷️ Camp Pricing, Validity Profiles & Dynamic Unit Weighting
+
+1. **Validity Profiles (`validity_profiles`)**:
+   - Master list of voucher validity tiers and their normalized unit weightings for sales metrics (e.g. `30-Days` = 1.0 unit, `15-Days` = 0.5 unit, `7-Days` = 0.25 unit, `10-Days` = 0.33 unit, `1-Day` = 0.033 unit).
+   - Super Administrators can add and customize validity profiles dynamically in the Web Admin & Sales Report masters.
+2. **Camp Validity Pricing (`camp_validity_pricing`)**:
+   - Clean relational schema: `id`, `company_id` (FK to `companies.id`), `router_id` (FK to `routers.id`), `validity` (INTEGER number of days, e.g. `15`, `30`), `price` (REAL AED), `unit` (REAL sales multiplier, e.g. `0.5`, `1.0`), `status` (INTEGER `1` = active).
+   - **Auto-Seeding on Router / Camp Creation**: Whenever a new router or camp is created, two default pricing records are automatically seeded:
+     - `validity: 15` (Default Price: 16 AED, Unit: 0.5)
+     - `validity: 30` (Default Price: 32 AED, Unit: 1.0)
+   - Super Administrators can subsequently modify prices, units, toggle active/inactive status, or add additional validity tiers (e.g. 7 days, 10 days) from the Super Admin Pricing dashboard.
+3. **Dynamic Sales Count Calculation**:
+   - Sales counts across the Mobile POS, Web Dashboard, and Sales Reports are dynamically computed by joining with `camp_validity_pricing.unit` and `validity_profiles.unit_weight` (with fallback `15-Days` = 0.5, `30-Days` = 1.0) instead of raw `COUNT(*)` voucher counts:
+     ```sql
+     COALESCE(cvp.unit, vp.unit_weight, CASE WHEN v.validity_days = 30 THEN 1.0 WHEN v.validity_days = 15 THEN 0.5 WHEN v.validity_days = 7 THEN 0.25 ELSE CAST(v.validity_days AS REAL) / 30.0 END)
+     ```
+   - On the **Sales Report Web Dashboard (`microtik-sales-report`)**, the weighted calculation is applied across:
+     - **Outstanding Balance**: `TOTAL SALES`
+     - **Today's Sale Card**: `TOTAL COUNT` and individual camp sales badges
+     - **Company - Monthly Sales Analysis**: `SALES COUNT` & `PREV COUNT`
+     - **Today Camps Sales Carousel**: `Vouchers Count`
+     - **This Month Sales Card**: `COUNT`
+     - **Last Month Sale Card**: `SALE COUNT`
+   - Numeric values are cleanly formatted using `formatCount` (rendering whole units like `1` or `2` without decimals, and fractional units like `0.5` or `1.5` with 1 decimal).
+

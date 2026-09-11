@@ -9,21 +9,42 @@ export async function GET() {
   try {
     const database = await getDB();
     
-    // 1. Get Camp Validity Pricing entries
+    // 1. Get Camp Validity Pricing entries with router & company details
     const cvpResult = await database.execute(`
-      SELECT id, camp_name, validity_name, company_name, price, status
-      FROM camp_validity_pricing
-      ORDER BY camp_name ASC, validity_name ASC
+      SELECT 
+        cvp.id, 
+        cvp.company_id, 
+        cvp.router_id, 
+        cvp.validity, 
+        cvp.price, 
+        COALESCE(cvp.unit, 1.0) as unit, 
+        cvp.status,
+        COALESCE(r.sessionName, r.camp, cvp.router_id) as camp_name,
+        c.name as company_name
+      FROM camp_validity_pricing cvp
+      LEFT JOIN routers r ON cvp.router_id = r.id
+      LEFT JOIN companies c ON cvp.company_id = c.id
+      ORDER BY camp_name ASC, cvp.validity ASC
     `);
 
-    const campPricing = cvpResult.rows.map((row) => ({
-      id: Number(row.id),
-      campName: String(row.camp_name),
-      validityName: String(row.validity_name),
-      companyName: String(row.company_name || "Apricom"),
-      price: Number(row.price),
-      status: Number(row.status ?? 1),
-    }));
+    const campPricing = cvpResult.rows.map((row) => {
+      const vDays = Number(row.validity);
+      let calculatedUnit = Number(row.unit);
+      if (row.unit === null || row.unit === undefined || isNaN(calculatedUnit)) {
+        calculatedUnit = vDays === 15 ? 0.5 : (vDays === 7 ? 0.25 : 1.0);
+      }
+      return {
+        id: Number(row.id),
+        routerId: String(row.router_id),
+        campName: String(row.camp_name || row.router_id),
+        validity: vDays,
+        companyId: row.company_id ? Number(row.company_id) : null,
+        companyName: row.company_name ? String(row.company_name) : "",
+        price: Number(row.price),
+        unit: calculatedUnit,
+        status: Number(row.status ?? 1),
+      };
+    });
 
     // 2. Get all distinct registered locations/routers with their company IDs and names directly from routers & companies
     const campsResult = await database.execute(`
@@ -51,10 +72,6 @@ export async function GET() {
     const companies = compResult.rows.map((r) => String(r.name));
     const companyObjects = compResult.rows.map((r) => ({ id: Number(r.id), name: String(r.name) }));
 
-    // 4. Get distinct validity profile names
-    const vpResult = await database.execute("SELECT name FROM validity_profiles");
-    const validityProfiles = vpResult.rows.map((r) => String(r.name));
-
     return NextResponse.json({
       success: true,
       campPricing,
@@ -62,7 +79,7 @@ export async function GET() {
       campsWithCompany,
       companies,
       companyObjects,
-      validityProfiles: validityProfiles.length > 0 ? validityProfiles : ["7-Days", "15-Days", "30-Days"],
+      validityProfiles: [7, 15, 30],
     });
   } catch (error) {
     return mikrotikErrorResponse(error, "Failed to load pricing configurations");
@@ -73,24 +90,50 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { campName, validityName, companyName, price, status } = body;
-
-    if (!campName || !validityName || price === undefined) {
-      return NextResponse.json({ success: false, error: "Camp name, validity profile, and price are required" }, { status: 400 });
-    }
+    const { routerId, campName, validity, price, unit, status } = body;
 
     const database = await getDB();
+    let targetRouterId = routerId ? String(routerId).trim() : "";
+    let targetCompanyId: number | null = null;
+
+    if (!targetRouterId && campName) {
+      const rRes = await database.execute({
+        sql: "SELECT id, company_id FROM routers WHERE LOWER(sessionName) = LOWER(?) OR LOWER(camp) = LOWER(?) OR LOWER(id) = LOWER(?) LIMIT 1",
+        args: [campName.trim(), campName.trim(), campName.trim()],
+      });
+      if (rRes.rows.length > 0) {
+        targetRouterId = String(rRes.rows[0].id);
+        targetCompanyId = rRes.rows[0].company_id ? Number(rRes.rows[0].company_id) : null;
+      }
+    } else if (targetRouterId) {
+      const rRes = await database.execute({
+        sql: "SELECT company_id FROM routers WHERE id = ? LIMIT 1",
+        args: [targetRouterId],
+      });
+      if (rRes.rows.length > 0 && rRes.rows[0].company_id) {
+        targetCompanyId = Number(rRes.rows[0].company_id);
+      }
+    }
+
+    if (!targetRouterId || validity === undefined || price === undefined) {
+      return NextResponse.json({ success: false, error: "Router and validity (in days) and price are required" }, { status: 400 });
+    }
+
+    const validityDays = Number(String(validity).replace(/\D/g, "")) || Number(validity) || 30;
+    const defaultUnit = validityDays === 15 ? 0.5 : (validityDays === 7 ? 0.25 : 1.0);
+    const finalUnit = unit !== undefined && unit !== null && !isNaN(Number(unit)) ? Number(unit) : defaultUnit;
 
     await database.execute({
       sql: `
-        INSERT INTO camp_validity_pricing (camp_name, validity_name, company_name, price, status)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(camp_name, validity_name) DO UPDATE SET
+        INSERT INTO camp_validity_pricing (company_id, router_id, validity, price, unit, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(router_id, validity) DO UPDATE SET
           price = excluded.price,
-          company_name = excluded.company_name,
+          unit = excluded.unit,
+          company_id = excluded.company_id,
           status = excluded.status
       `,
-      args: [campName.trim(), validityName.trim(), companyName || "Apricom", Number(price), status !== undefined ? Number(status) : 1],
+      args: [targetCompanyId, targetRouterId, validityDays, Number(price), finalUnit, status !== undefined ? Number(status) : 1],
     });
 
     return NextResponse.json({ success: true, message: "Pricing configured successfully" });

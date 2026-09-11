@@ -83,15 +83,20 @@ interface AdminUser {
   companyName: string;
   companyId?: string | number | null;
   allowedCamps: string[];
+  status?: number;
+  suspendedReason?: string | null;
   createdAt: string;
 }
 
 interface CampPricing {
   id: string | number;
+  routerId?: string;
   campName: string;
-  validityName: string;
+  validity: number;
+  companyId?: string | number | null;
   companyName: string;
   price: number;
+  unit?: number;
   status: number;
 }
 
@@ -204,6 +209,7 @@ export function AdminClient() {
   const [selectedCamp, setSelectedCamp] = useState("");
   const [selectedValidity, setSelectedValidity] = useState("");
   const [customPrice, setCustomPrice] = useState("");
+  const [customUnit, setCustomUnit] = useState("1.0");
   const [savingPricing, setSavingPricing] = useState(false);
 
   // Filter by Company for Super Admin
@@ -307,10 +313,8 @@ export function AdminClient() {
       }
       if (compItemsMap.size > 0) {
         setAllCompaniesList(Array.from(compItemsMap.values()));
-      }
-      if (allCompanies.size === 0) {
-        allCompanies.add("Apricom DXB");
-        allCompanies.add("Apricom KSA");
+      } else {
+        setAllCompaniesList([]);
       }
       setCompaniesList(Array.from(allCompanies));
 
@@ -647,6 +651,67 @@ export function AdminClient() {
     }
   };
 
+  const handleToggleSalespersonStatus = async (user: AdminUser) => {
+    const isCurrentlyActive = user.status !== 0;
+    const actionWord = isCurrentlyActive ? "PAUSE" : "ACTIVATE";
+    if (
+      !confirm(
+        `Are you sure you want to ${actionWord} salesperson "${user.displayName || user.username}"?\n\n` +
+        (isCurrentlyActive
+          ? "This will pause their mobile POS access and prevent voucher sales."
+          : "This will restore their mobile POS access and allow voucher sales.")
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await fetchMikrotikApi("/api/mikrotik/admin/users", {
+        method: "PUT",
+        body: JSON.stringify({
+          id: user.id,
+          status: isCurrentlyActive ? 0 : 1,
+          suspendedReason: isCurrentlyActive ? "Salesperson account paused by administrator" : null,
+        }),
+      });
+      toast.success(`Salesperson ${isCurrentlyActive ? "paused" : "activated"} successfully`);
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to ${actionWord.toLowerCase()} salesperson`);
+    }
+  };
+
+  const handleToggleReportUserStatus = async (u: ReportUser) => {
+    const isCurrentlyActive = u.status === 1;
+    const actionWord = isCurrentlyActive ? "PAUSE" : "ACTIVATE";
+    if (
+      !confirm(
+        `Are you sure you want to ${actionWord} sales report viewer "${u.displayName || u.username}"?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await fetchMikrotikApi("/api/mikrotik/admin/report-users", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "update",
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+          companyId: u.companyId,
+          allowedCampIds: u.allowedCampIds,
+          status: isCurrentlyActive ? 0 : 1,
+        }),
+      });
+      toast.success(`Sales report viewer ${isCurrentlyActive ? "paused" : "activated"} successfully`);
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to ${actionWord.toLowerCase()} report user`);
+    }
+  };
+
   const handleDeleteCompanyAdmin = async (admin: CompanyAdmin) => {
     if (!confirm(`Are you sure you want to delete company admin "${admin.username}" (${admin.companyName})?`)) {
       return;
@@ -698,9 +763,10 @@ export function AdminClient() {
 
   // Pricing Actions
   const handleOpenEditPricing = (item: CampPricing) => {
-    setSelectedCamp(item.campName);
-    setSelectedValidity(item.validityName);
+    setSelectedCamp(item.routerId || item.campName);
+    setSelectedValidity(item.validity.toString());
     setCustomPrice(item.price.toString());
+    setCustomUnit(item.unit !== undefined ? item.unit.toString() : (item.validity === 15 ? "0.5" : "1.0"));
     setPricingModalOpen(true);
   };
 
@@ -713,21 +779,28 @@ export function AdminClient() {
 
     setSavingPricing(true);
     try {
+      const validityDays = Number(String(selectedValidity).replace(/\D/g, "")) || 30;
+      const defaultUnit = validityDays === 15 ? 0.5 : (validityDays === 7 ? 0.25 : 1.0);
+      const parsedUnit = customUnit && !isNaN(Number(customUnit)) ? Number(customUnit) : defaultUnit;
+
       await fetchMikrotikApi("/api/mikrotik/admin/pricing", {
         method: "POST",
         body: JSON.stringify({
+          routerId: selectedCamp,
           campName: selectedCamp,
-          validityName: selectedValidity,
+          validity: validityDays,
           price: Number(customPrice),
+          unit: parsedUnit,
           status: 1,
         }),
       });
 
-      toast.success(`Price updated for ${selectedCamp} (${selectedValidity}) -> AED ${customPrice}`);
+      toast.success(`Price updated for ${selectedCamp} (${validityDays} Days) -> AED ${customPrice} (${parsedUnit} Unit)`);
       setPricingModalOpen(false);
       setSelectedCamp("");
       setSelectedValidity("");
       setCustomPrice("");
+      setCustomUnit("1.0");
       await loadData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save pricing");
@@ -737,7 +810,7 @@ export function AdminClient() {
   };
 
   const handleDeletePricing = async (p: CampPricing) => {
-    if (!confirm(`Delete custom price for ${p.campName} (${p.validityName})?`)) {
+    if (!confirm(`Delete custom price for ${p.campName} (${p.validity} Days)?`)) {
       return;
     }
 
@@ -885,7 +958,8 @@ export function AdminClient() {
   const filteredPricing = campPricing.filter((p) => {
     const matchesSearch =
       p.campName.toLowerCase().includes(pricingSearch.toLowerCase()) ||
-      p.validityName.toLowerCase().includes(pricingSearch.toLowerCase());
+      String(p.validity).includes(pricingSearch.toLowerCase()) ||
+      `${p.validity} days`.includes(pricingSearch.toLowerCase());
 
     const matchesCompany =
       selectedCompanyFilter === "ALL" ||
@@ -1109,6 +1183,7 @@ export function AdminClient() {
                   <TableHead>Company</TableHead>
                   <TableHead>Allowed Camps / Permissions</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Password</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Action</TableHead>
@@ -1117,12 +1192,14 @@ export function AdminClient() {
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="h-32 text-center text-muted-foreground">
                       No salespeople found. Click &quot;Add New Salesperson&quot; to create one.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredUsers.map((user, idx) => (
+                  filteredUsers.map((user, idx) => {
+                    const isUserActive = user.status !== 0;
+                    return (
                     <TableRow key={user.id}>
                       <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
                       <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
@@ -1180,6 +1257,19 @@ export function AdminClient() {
                           {user.role}
                         </span>
                       </TableCell>
+                      <TableCell>
+                        {isUserActive ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                            <CheckCircle2 className="size-3" />
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2.5 py-0.5 rounded-full border border-red-200 dark:border-red-800">
+                            <Pause className="size-3" />
+                            Paused
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         ••••••••
                       </TableCell>
@@ -1188,6 +1278,29 @@ export function AdminClient() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-7 px-2 text-xs font-semibold gap-1 ${
+                              isUserActive
+                                ? "border-amber-500/50 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                                : "border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                            }`}
+                            title={isUserActive ? "Pause salesperson access" : "Activate salesperson"}
+                            onClick={() => void handleToggleSalespersonStatus(user)}
+                          >
+                            {isUserActive ? (
+                              <>
+                                <Pause className="size-3 text-amber-600" />
+                                Pause
+                              </>
+                            ) : (
+                              <>
+                                <Play className="size-3 text-emerald-600" />
+                                Activate
+                              </>
+                            )}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon-xs"
@@ -1207,7 +1320,8 @@ export function AdminClient() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -1457,22 +1571,23 @@ export function AdminClient() {
                   <TableHead>Validity Plan</TableHead>
                   <TableHead>Company</TableHead>
                   <TableHead>Price (AED)</TableHead>
+                  <TableHead>Sales Unit</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {campPricing
                   .filter((item) => !activePricingCamp || item.campName.toLowerCase() === activePricingCamp.toLowerCase())
-                  .filter((item) => item.validityName.toLowerCase().includes(pricingSearch.toLowerCase())).length === 0 ? (
+                  .filter((item) => String(item.validity).includes(pricingSearch.toLowerCase())).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                       No custom prices configured for {activePricingCamp ? `"${activePricingCamp}"` : "this camp"}. Click &quot;Configure Camp Price&quot; to set custom rates.
                     </TableCell>
                   </TableRow>
                 ) : (
                   campPricing
                     .filter((item) => !activePricingCamp || item.campName.toLowerCase() === activePricingCamp.toLowerCase())
-                    .filter((item) => item.validityName.toLowerCase().includes(pricingSearch.toLowerCase()))
+                    .filter((item) => String(item.validity).includes(pricingSearch.toLowerCase()))
                     .map((item, idx) => (
                       <TableRow key={item.id}>
                         <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
@@ -1482,12 +1597,17 @@ export function AdminClient() {
                         <TableCell>
                           <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:text-purple-300">
                             <Tag className="size-3" />
-                            {item.validityName}
+                            {item.validity} Days
                           </span>
                         </TableCell>
                         <TableCell className="text-muted-foreground">{item.companyName}</TableCell>
                         <TableCell className="font-bold text-emerald-600 dark:text-emerald-400">
                           AED {item.price.toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-950/40 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/40">
+                            {item.unit !== undefined ? item.unit : (item.validity === 15 ? 0.5 : 1.0)} Unit
+                          </span>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
@@ -1636,6 +1756,29 @@ export function AdminClient() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-7 px-2 text-xs font-semibold gap-1 ${
+                              u.status === 1
+                                ? "border-amber-500/50 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                                : "border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                            }`}
+                            title={u.status === 1 ? "Pause report viewer access" : "Activate report viewer"}
+                            onClick={() => void handleToggleReportUserStatus(u)}
+                          >
+                            {u.status === 1 ? (
+                              <>
+                                <Pause className="size-3 text-amber-600" />
+                                Pause
+                              </>
+                            ) : (
+                              <>
+                                <Play className="size-3 text-emerald-600" />
+                                Activate
+                              </>
+                            )}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon-xs"
@@ -2053,32 +2196,59 @@ export function AdminClient() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="pricingPlan">Validity Plan</Label>
-                <Select value={selectedValidity} onValueChange={(v) => v && setSelectedValidity(v)}>
+                <Label htmlFor="pricingPlan">Validity (Days)</Label>
+                <Select value={selectedValidity} onValueChange={(v) => {
+                  if (v) {
+                    setSelectedValidity(v);
+                    const days = Number(String(v).replace(/\D/g, "")) || 30;
+                    if (!customUnit || customUnit === "1.0" || customUnit === "0.5") {
+                      if (days === 15) setCustomUnit("0.5");
+                      else if (days === 7) setCustomUnit("0.25");
+                      else if (days === 10) setCustomUnit("0.33");
+                      else if (days === 1) setCustomUnit("0.033");
+                      else setCustomUnit("1.0");
+                    }
+                  }
+                }}>
                   <SelectTrigger id="pricingPlan">
-                    <SelectValue placeholder="Select validity plan" />
+                    <SelectValue placeholder="Select validity (e.g. 15, 30 Days)" />
                   </SelectTrigger>
                   <SelectContent>
                     {validityProfiles.map((plan) => (
-                      <SelectItem key={plan} value={plan}>
-                        {plan}
+                      <SelectItem key={plan} value={String(plan)}>
+                        {String(plan).replace(/\D/g, "") || plan} Days
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="price">Selling Price (AED)</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  step="0.5"
-                  placeholder="e.g. 32.00 or 16.00"
-                  value={customPrice}
-                  onChange={(e) => setCustomPrice(e.target.value)}
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="price">Selling Price (AED)</Label>
+                  <Input
+                    id="price"
+                    type="number"
+                    step="0.5"
+                    placeholder="e.g. 32.00 or 16.00"
+                    value={customPrice}
+                    onChange={(e) => setCustomPrice(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="unit">Sales Unit (Weight)</Label>
+                  <Input
+                    id="unit"
+                    type="number"
+                    step="0.01"
+                    placeholder="e.g. 1.0 or 0.5"
+                    value={customUnit}
+                    onChange={(e) => setCustomUnit(e.target.value)}
+                    required
+                  />
+                  <p className="text-[10px] text-muted-foreground">e.g. 30D = 1.0, 15D = 0.5</p>
+                </div>
               </div>
             </div>
 

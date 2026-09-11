@@ -78,23 +78,33 @@ export function HotspotUsersView() {
   const loadProfiles = useCallback(async () => {
     if (!activeRouter) return;
     try {
-      const payload = await fetchForRouter<{ profiles: { name: string }[] }>(
-        "/api/mikrotik/profiles",
-        activeRouter
-      );
-      setProfiles(payload.profiles);
-      // Automatically choose 15-Days if available, or first 15-day variant, else default
-      const match = payload.profiles.find((p) => /15\s*[-_]?\s*day/i.test(p.name))?.name;
-      if (match) {
-        setProfile(match);
-        setGenProfile(match);
-      } else if (payload.profiles.length > 0) {
-        const fallback = payload.profiles[0].name;
-        setProfile((prev) => payload.profiles.some((p) => p.name === prev) ? prev : fallback);
-        setGenProfile((prev) => payload.profiles.some((p) => p.name === prev) ? prev : fallback);
+      const payload = await fetchForRouter<{
+        profiles: { name: string }[];
+        campPlans?: { validity: number; name: string; price: number; unit: number }[];
+      }>("/api/mikrotik/profiles", activeRouter);
+
+      let availableProfiles: { name: string }[] = [];
+
+      // If camp has validity pricing defined in camp_validity_pricing, use those dynamic plans!
+      if (payload.campPlans && payload.campPlans.length > 0) {
+        availableProfiles = payload.campPlans.map((p) => ({
+          name: p.name,
+        }));
+      } else if (payload.profiles && payload.profiles.length > 0) {
+        availableProfiles = payload.profiles;
+      } else {
+        availableProfiles = [{ name: "15-Days" }, { name: "30-Days" }];
       }
+
+      setProfiles(availableProfiles);
+
+      // Select first profile or match 15-Days by default
+      const match = availableProfiles.find((p) => /15\s*[-_]?\s*day/i.test(p.name))?.name;
+      const initial = match || availableProfiles[0]?.name || "15-Days";
+      setProfile((prev) => availableProfiles.some((p) => p.name === prev) ? prev : initial);
+      setGenProfile((prev) => availableProfiles.some((p) => p.name === prev) ? prev : initial);
     } catch {
-      setProfiles([{ name: "15-Days" }, { name: "default" }]);
+      setProfiles([{ name: "15-Days" }, { name: "30-Days" }]);
     }
   }, [activeRouter]);
 

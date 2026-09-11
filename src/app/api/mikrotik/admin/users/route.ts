@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     let query = `
       SELECT 
         sp.id, sp.username, sp.display_name, sp.password, sp.role, 
-        sp.company_id, sp.allowed_camps, sp.created_at,
+        sp.company_id, sp.allowed_camps, sp.status, sp.suspended_reason, sp.created_at,
         c.id as resolved_company_id, c.name as resolved_company_name
       FROM sales_persons sp
       LEFT JOIN companies c ON sp.company_id IS NOT NULL AND c.id = sp.company_id
@@ -59,6 +59,8 @@ export async function GET(request: Request) {
         companyId: finalCompanyId,
         companyName: finalCompanyName,
         allowedCamps,
+        status: row.status !== undefined && row.status !== null ? Number(row.status) : 1,
+        suspendedReason: row.suspended_reason ? String(row.suspended_reason) : null,
         createdAt: String(row.created_at || ""),
       };
     });
@@ -175,7 +177,7 @@ export async function DELETE(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, username, displayName, password, role, campName, companyName, companyId, allowedCamps } = body;
+    const { id, username, displayName, password, role, campName, companyName, companyId, allowedCamps, status, suspendedReason } = body;
 
     if (!id) {
       return NextResponse.json({ success: false, error: "User ID is required" }, { status: 400 });
@@ -228,8 +230,9 @@ export async function PUT(request: Request) {
     }
 
     const hashedPassword = password && password.trim() ? hashPassword(password.trim()) : null;
-    const campsArray = Array.isArray(allowedCamps) ? allowedCamps : (campName && campName !== "All Camps" ? [campName] : undefined);
-    const allowedCampsStr = campsArray !== undefined ? JSON.stringify(campsArray) : undefined;
+    const hasAllowedCamps = allowedCamps !== undefined || campName !== undefined;
+    const campsArray = Array.isArray(allowedCamps) ? allowedCamps : (campName && campName !== "All Camps" ? [campName] : (campName === "All Camps" ? [] : []));
+    const allowedCampsStr = JSON.stringify(campsArray);
 
     await database.execute({
       sql: `
@@ -239,7 +242,9 @@ export async function PUT(request: Request) {
             password = COALESCE(?, password),
             role = COALESCE(?, role),
             company_id = COALESCE(?, company_id),
-            allowed_camps = COALESCE(?, allowed_camps),
+            allowed_camps = CASE WHEN ? = 1 THEN ? ELSE allowed_camps END,
+            status = CASE WHEN ? = 1 THEN ? ELSE status END,
+            suspended_reason = CASE WHEN ? = 1 THEN ? ELSE suspended_reason END,
             created_at = COALESCE(created_at, datetime('now'))
         WHERE id = ?
       `,
@@ -249,7 +254,12 @@ export async function PUT(request: Request) {
         hashedPassword,
         role ?? null,
         resolvedCompanyId ?? null,
-        allowedCampsStr ?? null,
+        hasAllowedCamps ? 1 : 0,
+        allowedCampsStr,
+        status !== undefined ? 1 : 0,
+        status !== undefined ? Number(status) : null,
+        suspendedReason !== undefined ? 1 : 0,
+        suspendedReason !== undefined ? (suspendedReason ? String(suspendedReason) : null) : null,
         Number(id),
       ],
     });

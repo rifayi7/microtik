@@ -69,20 +69,19 @@ export async function POST(request: Request) {
     // 1. Fetch all configured validity plans for this camp from camp_validity_pricing
     const pricingRes = await db.execute({
       sql: `
-        SELECT validity_name, price 
+        SELECT validity, price, unit 
         FROM camp_validity_pricing 
-        WHERE (camp_name = ? OR camp_name = ?) AND status = 1
+        WHERE (router_id = ? OR router_id = ? OR router_id = ?) AND status = 1
       `,
-      args: [campName, config.sessionName],
+      args: [config.id, config.sessionName, campName],
     });
 
-    // Extract day numbers from validity_name (e.g. '15-Days' -> 15, '30-Days' -> 30)
     const configuredPlans = pricingRes.rows.map((row) => {
-      const vName = String(row.validity_name);
-      const match = vName.match(/\d+/);
+      const vDays = Number(row.validity);
       return {
-        days: match ? Number(match[0]) : 30,
+        days: vDays,
         price: Number(row.price),
+        unit: Number(row.unit ?? (vDays === 15 ? 0.5 : 1.0)),
       };
     });
 
