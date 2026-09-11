@@ -107,6 +107,12 @@ export async function initializeDB() {
     // Column already exists
   }
 
+  try {
+    await db.execute("ALTER TABLE sales_persons ADD COLUMN active_session_token TEXT;");
+  } catch (e) {
+    // Column already exists
+  }
+
   // Create company_admins table for company tenant accounts
   await db.execute(`
     CREATE TABLE IF NOT EXISTS company_admins (

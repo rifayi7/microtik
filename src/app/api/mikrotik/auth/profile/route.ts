@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       sql: `
         SELECT 
           sp.id, sp.username, sp.display_name, sp.role, 
-          sp.company_id, sp.allowed_camps,
+          sp.company_id, sp.allowed_camps, sp.active_session_token,
           c.id as resolved_company_id, c.name as resolved_company_name,
           COALESCE(c.timezone, 'Asia/Dubai') as company_timezone,
           COALESCE(c.status, 1) as company_status,
@@ -42,6 +42,20 @@ export async function GET(request: Request) {
     }
 
     const row = result.rows[0];
+
+    // Single-device concurrency check for salespersons
+    const activeSession = row.active_session_token ? String(row.active_session_token) : null;
+    if (activeSession && authUser?.sessionId && activeSession !== authUser.sessionId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "You have been logged out because this account logged in on another device.",
+          errorCode: "SESSION_EXPIRED_OTHER_DEVICE",
+          isSessionReplaced: true,
+        },
+        { status: 401 }
+      );
+    }
 
     // Check if company is paused / suspended
     if (row.company_status !== undefined && Number(row.company_status) === 0) {

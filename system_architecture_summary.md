@@ -136,3 +136,7 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
 3. **Password Security Standard**:
    - Uses Node.js native `scrypt` hashing with unique per-password cryptographic salts across all ecosystem tables (`super_admins`, `company_admins`, `sales_persons`, `report_users`).
    - Backward-compatible auto-upgrade smoothly migrates legacy credentials upon successful login (`needsRehash` transparently upgrades DB record to `scrypt`).
+4. **Single Active Device Concurrency Control (Kick Out Previous Device)**:
+   - Enforced on all salesperson logins via a dynamic `active_session_token` recorded in the `sales_persons` table and embedded into the JWT token payload.
+   - When a salesperson logs into a new device (Phone B), a fresh session UUID is generated in the database.
+   - Any ongoing API calls, profile polling, or voucher recharges from the previous device (Phone A) are immediately rejected with HTTP 401 (`errorCode: "SESSION_EXPIRED_OTHER_DEVICE"`), automatically logging out the previous phone and alerting the operator.

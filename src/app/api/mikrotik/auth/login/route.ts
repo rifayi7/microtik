@@ -139,6 +139,19 @@ export async function POST(request: Request) {
       allowedCamps,
     };
 
+    const crypto = await import("crypto");
+    const sessionId = crypto.randomUUID();
+
+    // Store active_session_token in database to enforce single active device
+    try {
+      await database.execute({
+        sql: "UPDATE sales_persons SET active_session_token = ? WHERE id = ?",
+        args: [sessionId, Number(row.id)],
+      });
+    } catch (sessionErr) {
+      console.warn("Failed to update active_session_token:", sessionErr);
+    }
+
     const token = signJwt({
       sub: user.username,
       userId: user.id,
@@ -147,6 +160,7 @@ export async function POST(request: Request) {
       companyId: user.companyId,
       companyName: user.companyName,
       allowedCamps: user.allowedCamps,
+      sessionId,
     });
 
     return NextResponse.json({

@@ -54,6 +54,7 @@ export interface JwtAuthPayload {
   companyName?: string | null;
   allowedCamps?: string[];
   allowedRouterIds?: string[];
+  sessionId?: string; // unique session ID for single-device concurrency control
   iat?: number;
   exp?: number;
 }
@@ -177,6 +178,34 @@ export async function requireAuth(
         { status: 401 }
       ),
     };
+  }
+
+  // If user is a salesperson, verify single-device concurrency (kick out previous device)
+  if (user.role === "salesperson" && user.userId && db) {
+    try {
+      const spRes = await db.execute({
+        sql: "SELECT active_session_token FROM sales_persons WHERE id = ? LIMIT 1",
+        args: [user.userId],
+      });
+      if (spRes.rows.length > 0) {
+        const currentActiveToken = spRes.rows[0].active_session_token ? String(spRes.rows[0].active_session_token) : null;
+        if (currentActiveToken && user.sessionId && currentActiveToken !== user.sessionId) {
+          const { NextResponse } = await import("next/server");
+          return {
+            errorResponse: NextResponse.json(
+              {
+                error: "You have been logged out because this account logged in on another device.",
+                errorCode: "SESSION_EXPIRED_OTHER_DEVICE",
+                isSessionReplaced: true,
+              },
+              { status: 401 }
+            ),
+          };
+        }
+      }
+    } catch {
+      // Allow proceeding if check fails transiently
+    }
   }
 
   // If user is company-bound or salesperson, check company suspension status
