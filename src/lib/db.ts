@@ -229,21 +229,6 @@ export async function initializeDB() {
     );
   `);
 
-  // Ensure default super admin account exists in super_admins table
-  try {
-    const superCountRes = await db.execute("SELECT COUNT(*) as count FROM super_admins");
-    if (Number(superCountRes.rows[0]?.count ?? 0) === 0) {
-      // Default initial super admin with scrypt hashed password (admin / admin123)
-      // scrypt hash for "admin123" with deterministic salt for initial seed
-      await db.execute({
-        sql: "INSERT OR IGNORE INTO super_admins (username, display_name, password) VALUES (?, ?, ?)",
-        args: ["admin", "Super Administrator", "admin123"],
-      });
-    }
-  } catch (e) {
-    // Ignore if already created
-  }
-
   // Ensure verified_status column exists in routers table (1 = verified/active, 0 = pending/unverified)
   try {
     await db.execute("ALTER TABLE routers ADD COLUMN verified_status INTEGER DEFAULT 0;");

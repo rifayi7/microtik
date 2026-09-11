@@ -6,7 +6,7 @@ import { verifyPassword, hashPassword, needsRehash, signJwt } from "@/lib/auth-c
 export const runtime = "nodejs";
 
 // POST /api/mikrotik/auth/admin-login
-// Authenticates Super Admin (admin / admin123) and Company Admins (company_admins table)
+// Authenticates Super Admin (super_admins table) and Company Admins (company_admins table)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -82,38 +82,6 @@ export async function POST(request: Request) {
       }
     } catch (err) {
       console.warn("Error querying super_admins table:", err);
-    }
-
-    // Emergency Super Admin Failsafe (allowed only if super_admins table has 0 registered users)
-    if (trimmedUser.toLowerCase() === "admin" && trimmedPass === "admin123") {
-      try {
-        const countRes = await database.execute("SELECT COUNT(*) as count FROM super_admins");
-        if (Number(countRes.rows[0]?.count ?? 0) === 0) {
-          const user = {
-            id: 0,
-            username: "admin",
-            displayName: "Super Administrator",
-            role: "superadmin" as const,
-            companyName: null,
-            allowedCamps: [],
-          };
-
-          const token = signJwt({
-            sub: user.username,
-            userId: user.id,
-            displayName: user.displayName,
-            role: user.role,
-            companyName: user.companyName,
-            allowedCamps: user.allowedCamps,
-          });
-
-          return NextResponse.json({
-            success: true,
-            user,
-            token,
-          });
-        }
-      } catch {}
     }
 
     // 2. Company Admin Authentication Check against company_admins table

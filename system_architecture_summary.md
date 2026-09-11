@@ -116,13 +116,12 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
 
 1. **Dedicated Database Storage**:
    - Stored dynamically in the `super_admins` table (`id`, `username`, `display_name`, `password`, `created_at`).
-   - Initialized / seeded via the idempotent script `npm run bootstrap:superadmin` (`scripts/bootstrap-superadmin.mjs`) on Turso Cloud.
-2. **Web Admin UI & REST API Management**:
-   - Super Admins can manage other Super Admin accounts directly from the Web Admin Portal (`/admin` -> `🛡️ Super Admins` tab) with full CRUD operations (`/api/mikrotik/admin/super-admins`).
+   - Managed strictly via the server-side CLI tool `npm run bootstrap:superadmin` (`scripts/bootstrap-superadmin.mjs`) on Turso Cloud with password confirmation and mandatory inputs.
+2. **Zero Hardcoded Credentials**:
+   - All hardcoded fallback credentials (`admin` / `admin123`) and legacy default seeds have been completely removed.
+   - Authentication is strictly verified against dynamic database records using salted `scrypt` hashing.
 3. **Cross-Table Conflict Prevention**:
    - Super Admin usernames and Company Admin usernames are cross-checked across both tables with a privacy-preserving neutral error message (`"This username is already taken. Please choose another one."`).
-4. **Failsafe Fallback**:
-   - Hardcoded emergency credentials (`admin`/`admin123`) are only enabled if the `super_admins` table is completely empty (0 rows).
 
 ---
 
