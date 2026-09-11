@@ -140,3 +140,13 @@ All tenant entities in the LinkFi ecosystem are bound together strictly using **
    - Enforced on all salesperson logins via a dynamic `active_session_token` recorded in the `sales_persons` table and embedded into the JWT token payload.
    - When a salesperson logs into a new device (Phone B), a fresh session UUID is generated in the database.
    - Any ongoing API calls, profile polling, or voucher recharges from the previous device (Phone A) are immediately rejected with HTTP 401 (`errorCode: "SESSION_EXPIRED_OTHER_DEVICE"`), automatically logging out the previous phone and alerting the operator.
+5. **Default-Deny Camp Permissions (0-Access When Empty/Null)**:
+   - For both `sales_persons` and `report_users`, if `allowed_camps` or `allowed_camp_ids` is `null`, empty string `""`, or an empty JSON array `[]`, the system strictly interprets this as **0 Access (NO camps permitted)** — **NEVER** "All Camps".
+   - **Sales Operation POS**:
+     - `GET /api/mikrotik/routers`: Returns `[]` (0 routers available).
+     - `POST /api/mikrotik/vouchers/plans`: Denies access with HTTP 403 (`"Access Denied: No camps assigned to your account"`).
+     - `POST /api/mikrotik/vouchers/redeem`: Blocks sales with HTTP 403 (`"Access Denied: No camps assigned to your account"`).
+     - `POST /api/mikrotik/vouchers/list`: Denies voucher listing with HTTP 403.
+   - **Sales & Accounting Portal**:
+     - Summary metrics, comparison cards, and voucher sales lists evaluate to `1 = 0`, returning `0 sales`, `0 revenue`, and `[]` empty camp lists.
+
