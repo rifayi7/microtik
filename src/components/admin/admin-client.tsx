@@ -683,12 +683,12 @@ export function AdminClient() {
 
   const handleToggleReportUserStatus = async (u: ReportUser) => {
     const isCurrentlyActive = u.status === 1;
-    const actionWord = isCurrentlyActive ? "PAUSE" : "ACTIVATE";
-    if (
-      !confirm(
-        `Are you sure you want to ${actionWord} sales report viewer "${u.displayName || u.username}"?`
-      )
-    ) {
+    const actionWord = isCurrentlyActive ? "PAUSE" : "RESUME";
+    const confirmMessage = isCurrentlyActive
+      ? `Are you sure you want to PAUSE sales report viewer "${u.displayName || u.username}"?\n\nThe user will be immediately logged out and prevented from logging in until you resume them.`
+      : `Are you sure you want to RESUME sales report viewer "${u.displayName || u.username}"?\n\nThe user will regain access to log in and view permitted reports.`;
+
+    if (!confirm(confirmMessage)) {
       return;
     }
 
@@ -705,7 +705,7 @@ export function AdminClient() {
           status: isCurrentlyActive ? 0 : 1,
         }),
       });
-      toast.success(`Sales report viewer ${isCurrentlyActive ? "paused" : "activated"} successfully`);
+      toast.success(`Sales report viewer ${isCurrentlyActive ? "paused" : "resumed"} successfully`);
       await loadData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `Failed to ${actionWord.toLowerCase()} report user`);
@@ -1743,14 +1743,14 @@ export function AdminClient() {
                       </TableCell>
                       <TableCell>
                         {u.status === 1 ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
                             <CheckCircle2 className="size-3" />
                             Active
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-                            <XCircle className="size-3" />
-                            Disabled
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                            <Pause className="size-3" />
+                            Paused
                           </span>
                         )}
                       </TableCell>
@@ -1759,12 +1759,12 @@ export function AdminClient() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className={`h-7 px-2 text-xs font-semibold gap-1 ${
+                            className={`h-7 px-2.5 text-xs font-semibold gap-1 ${
                               u.status === 1
                                 ? "border-amber-500/50 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
                                 : "border-emerald-500/50 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
                             }`}
-                            title={u.status === 1 ? "Pause report viewer access" : "Activate report viewer"}
+                            title={u.status === 1 ? "Pause report viewer access" : "Resume report viewer access"}
                             onClick={() => void handleToggleReportUserStatus(u)}
                           >
                             {u.status === 1 ? (
@@ -1775,7 +1775,7 @@ export function AdminClient() {
                             ) : (
                               <>
                                 <Play className="size-3 text-emerald-600" />
-                                Activate
+                                Resume
                               </>
                             )}
                           </Button>
@@ -2452,9 +2452,9 @@ export function AdminClient() {
                       </span>
                     </SelectItem>
                     <SelectItem value="0">
-                      <span className="text-slate-500 font-medium flex items-center gap-1.5">
-                        <XCircle className="size-3.5" />
-                        Disabled (Login Blocked)
+                      <span className="text-amber-600 font-medium flex items-center gap-1.5">
+                        <Pause className="size-3.5" />
+                        Paused (Access Blocked)
                       </span>
                     </SelectItem>
                   </SelectContent>

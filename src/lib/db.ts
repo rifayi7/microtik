@@ -146,6 +146,7 @@ export async function initializeDB() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  try { await db.execute("ALTER TABLE report_users ADD COLUMN status INTEGER DEFAULT 1;"); } catch {}
 
   // Create notifications and notification_reads tables
   await db.execute(`
