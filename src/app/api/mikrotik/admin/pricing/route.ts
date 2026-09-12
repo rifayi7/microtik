@@ -50,19 +50,24 @@ export async function GET() {
     const campsResult = await database.execute(`
       SELECT 
         r.id as router_id,
-        r.sessionName as name, 
+        COALESCE(r.sessionName, r.camp, r.id) as name, 
         r.company_id,
-        c.name as company_name 
+        c.name as company_name,
+        r.is_active
       FROM routers r 
       LEFT JOIN companies c ON r.company_id = c.id
-      WHERE (r.is_active = 1 OR r.is_active IS NULL)
     `);
-    const registeredCamps = Array.from(new Set(campsResult.rows.map((r) => String(r.name))));
+    const registeredCamps = Array.from(new Set(
+      campsResult.rows
+        .filter((r) => r.is_active === 1 || r.is_active === null)
+        .map((r) => String(r.name))
+    ));
     const campsWithCompany = campsResult.rows.map((r) => ({
       campId: r.router_id ? String(r.router_id) : null,
       name: String(r.name),
       companyId: r.company_id ? Number(r.company_id) : null,
       companyName: r.company_name ? String(r.company_name) : null,
+      isActive: r.is_active === 1 || r.is_active === null,
     }));
 
     // 3. Get distinct companies directly from companies table

@@ -32,6 +32,7 @@ import {
   Wrench,
   Pause,
   Play,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-header";
@@ -124,6 +125,7 @@ interface CampWithCompany {
   name: string;
   companyName: string | null;
   companyId?: number | null;
+  isActive?: boolean;
 }
 
 interface ReportUser {
@@ -1088,7 +1090,7 @@ export function AdminClient() {
       >
         <Button variant="outline" onClick={() => void loadData()} disabled={loading}>
           <RefreshCw className={`mr-2 size-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          {loading ? "Refreshing..." : "Refresh"}
         </Button>
       </PageHeader>
 
@@ -1182,17 +1184,27 @@ export function AdminClient() {
                   <TableHead>Display Name</TableHead>
                   <TableHead>Company</TableHead>
                   <TableHead>Allowed Camps / Permissions</TableHead>
-                  <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Password</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.length === 0 ? (
+                {loading ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-44 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-2.5 py-8">
+                        <Loader2 className="size-7 animate-spin text-primary" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">Fetching salespeople...</p>
+                          <p className="text-xs text-muted-foreground">Loading authorized salespeople accounts and camp permissions</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredUsers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                       No salespeople found. Click &quot;Add New Salesperson&quot; to create one.
                     </TableCell>
                   </TableRow>
@@ -1253,11 +1265,6 @@ export function AdminClient() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300">
-                          {user.role}
-                        </span>
-                      </TableCell>
-                      <TableCell>
                         {isUserActive ? (
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
                             <CheckCircle2 className="size-3" />
@@ -1269,9 +1276,6 @@ export function AdminClient() {
                             Paused
                           </span>
                         )}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        ••••••••
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         {user.createdAt ? user.createdAt.slice(0, 10) : "—"}
@@ -1358,15 +1362,26 @@ export function AdminClient() {
                   <TableHead>Admin Username</TableHead>
                   <TableHead>Timezone</TableHead>
                   <TableHead>Status / Dues</TableHead>
-                  <TableHead>Password</TableHead>
                   <TableHead>Created Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCompanyAdmins.length === 0 ? (
+                {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-44 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-2.5 py-8">
+                        <Loader2 className="size-7 animate-spin text-primary" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">Fetching company accounts...</p>
+                          <p className="text-xs text-muted-foreground">Loading multi-tenant company accounts and admin profiles</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredCompanyAdmins.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                       No company admin accounts found. Click &quot;Create Company Admin&quot; to provide login credentials to a client company.
                     </TableCell>
                   </TableRow>
@@ -1416,9 +1431,6 @@ export function AdminClient() {
                               Paused (Dues)
                             </span>
                           )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          ••••••••
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {admin.createdAt ? admin.createdAt.slice(0, 10) : "—"}
@@ -1576,7 +1588,19 @@ export function AdminClient() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {campPricing
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-44 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-2.5 py-8">
+                        <Loader2 className="size-7 animate-spin text-primary" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">Fetching camp pricing rates...</p>
+                          <p className="text-xs text-muted-foreground">Loading custom rates, validity profiles, and camp configurations</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : campPricing
                   .filter((item) => !activePricingCamp || item.campName.toLowerCase() === activePricingCamp.toLowerCase())
                   .filter((item) => String(item.validity).includes(pricingSearch.toLowerCase())).length === 0 ? (
                   <TableRow>
@@ -1672,7 +1696,19 @@ export function AdminClient() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredReportUsers.length === 0 ? (
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-44 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-2.5 py-8">
+                        <Loader2 className="size-7 animate-spin text-primary" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">Fetching report viewers...</p>
+                          <p className="text-xs text-muted-foreground">Loading accounts authorized for Sales Report Portal</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredReportUsers.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                       No report viewers found. Click &quot;Add Report Viewer&quot; to create login access for the Sales Report App.
@@ -1839,7 +1875,19 @@ export function AdminClient() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredNotifications.length === 0 ? (
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-44 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-2.5 py-8">
+                        <Loader2 className="size-7 animate-spin text-primary" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">Fetching broadcast notifications...</p>
+                          <p className="text-xs text-muted-foreground">Loading announcements and broadcast messages sent to field operators</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredNotifications.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       No broadcast notifications sent yet. Click &quot;Broadcast Notification&quot; to send an announcement to field operators.
